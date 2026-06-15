@@ -36,7 +36,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
     // ================== TRIAL AUTO PROMOTE ==================
     $schedule->command('trial:auto-promote')
-             ->dailyAt('00:01')
+             ->everyMinute()
              ->withoutOverlapping()
              ->runInBackground()
              ->description('Auto Promote Trial');

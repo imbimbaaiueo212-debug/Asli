@@ -185,4 +185,16 @@ class Student extends Model
     {
         return 'Rp ' . number_format($this->spp_bulanan ?? 0, 0, ',', '.');
     }
+
+        /**
+     * Cek apakah trial sudah boleh dibuat di tabel MuridTrial
+     */
+    public function isReadyForMuridTrial(): bool
+    {
+        if ($this->source !== 'trial') return false;
+        if ($this->murid_trial_id) return true;
+
+        $createdAt = $this->created_at ?? $this->trial_started_at ?? now();
+        return $createdAt->lte(now()->subDay());
+    }
 }   

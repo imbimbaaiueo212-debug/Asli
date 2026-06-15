@@ -3,8 +3,9 @@
 namespace App\Console\Commands;
 
 use App\Models\Student;
+use App\Models\MuridTrial;
 use Illuminate\Console\Command;
-use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class AutoPromoteTrial extends Command
@@ -13,57 +14,83 @@ class AutoPromoteTrial extends Command
     protected $description = 'Promote trial status dari "baru" menjadi "aktif" setelah 24 jam + buat MuridTrial';
 
     public function handle()
-{
-    $this->info("🔄 Memulai auto promote trial...");
+    {
+        $this->info("🔄 Memulai AUTO PROMOTE TRIAL - MODE 24 JAM");
 
-    $students = Student::where('source', 'trial')
-        ->where('trial_status', 'baru')
-        ->get();
+        $students = Student::where('source', 'trial')
+            ->where('trial_status', 'baru')
+            ->where('created_at', '<=', now()->subDay())   // 24 JAM
+            ->get();
 
-    $this->info("📊 Ditemukan {$students->count()} murid dengan status 'Trial Baru'");
+        $this->info("📊 Ditemukan {$students->count()} murid trial baru yang sudah lewat 24 jam");
 
-    if ($students->isEmpty()) {
-        $this->warn("Tidak ada data yang memenuhi syarat untuk dipromote.");
+        if ($students->isEmpty()) {
+            $this->warn("Tidak ada data yang memenuhi syarat untuk dipromote.");
+            return self::SUCCESS;
+        }
+
+        foreach ($students as $student) {
+            try {
+                DB::transaction(function () use ($student) {
+                    $student->update(['trial_status' => 'aktif']);
+
+                    $this->createMuridTrial($student);
+                });
+
+                $this->info("✅ BERHASIL dipromote: {$student->nama}");
+            } catch (\Throwable $e) {
+                $this->error("❌ Gagal promote {$student->nama} - " . $e->getMessage());
+                Log::error("AutoPromote failed", [
+                    'student_id' => $student->id,
+                    'nama'       => $student->nama,
+                    'error'      => $e->getMessage()
+                ]);
+            }
+        }
+
+        $this->info("🎉 Auto promote selesai.");
         return self::SUCCESS;
     }
 
-    $promoted = 0;
-
-    foreach ($students as $student) {
-        try {
-            $this->info("🔄 Memproses: {$student->nama} (ID: {$student->id})");
-
-            // Set timestamp kalau belum ada
-            if (empty($student->trial_started_at)) {
-                $student->trial_started_at = now();
-                $this->info("   → trial_started_at di-set");
-            }
-
-            $student->trial_status = 'aktif';
-            $student->save();
-
-            // Panggil ensureTrialRelation
-            $controller = app(\App\Http\Controllers\StudentController::class);
-            $controller->ensureTrialRelation($student, 'aktif');
-
-            $promoted++;
-
-            $this->info("✅ BERHASIL dipromote: {$student->nama}");
-
-        } catch (\Throwable $e) {
-            $this->error("❌ Gagal promote {$student->nama}: " . $e->getMessage());
-            Log::error('AutoPromoteTrial Error', [
-                'student_id' => $student->id,
-                'nama'       => $student->nama,
-                'error'      => $e->getMessage(),
-                'trace'      => $e->getTraceAsString()
-            ]);
+    /**
+     * Buat record MuridTrial
+     */
+    private function createMuridTrial(Student $student): void
+    {
+        // Cek duplikat
+        if ($student->murid_trial_id || 
+            MuridTrial::where('nama', $student->nama)
+                      ->where('no_telp', $student->no_telp)
+                      ->exists()) {
+            return;
         }
-    }
 
-    $this->newLine();
-    $this->info("✅ Auto promote selesai. {$promoted} murid berhasil dipromote.");
-    
-    return self::SUCCESS;
-}
+        $trial = MuridTrial::create([
+            'nama'                => $student->nama,
+            'status_trial'        => 'aktif',
+            'kelas'               => $student->kelas ?? 'Reguler',
+            'tgl_lahir'           => $student->tgl_lahir,
+            'usia'                => $student->usia,
+            'orangtua'            => $student->orangtua,
+            'no_telp'             => $student->no_telp,
+            'alamat'              => $student->alamat,
+            'guru_trial'          => $student->guru_wali,
+            'bimba_unit'          => $student->bimba_unit,
+            'no_cabang'           => $student->no_cabang,
+            'tgl_mulai'           => $student->tanggal_masuk ?? now()->format('Y-m-d'),
+            'waktu_submit'        => $student->created_at ?? now(),
+            'tanggal_trial_baru'  => now()->format('Y-m-d'),
+            'tanggal_aktif'       => now()->format('Y-m-d'),
+        ]);
+
+        $student->update([
+            'murid_trial_id' => $trial->id,
+            'trial_status'   => 'aktif'
+        ]);
+
+        Log::info("✅ MuridTrial berhasil dibuat setelah 24 jam", [
+            'nama'     => $student->nama,
+            'trial_id' => $trial->id
+        ]);
+    }
 }

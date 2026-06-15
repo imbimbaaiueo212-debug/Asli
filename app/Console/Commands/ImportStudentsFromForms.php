@@ -742,84 +742,77 @@ private function getDirectGoogleDriveLink(string $url): string
         }
     }
 
-    protected function ensureTrialRelation(Student $student, string $status = 'Baru'): void
+    protected function ensureTrialRelation(Student $student, string $status = 'baru'): void
 {
-    // HANYA untuk yang benar-benar trial
     if ($student->source !== 'trial') {
-        return; // Mutasi / direct → tidak perlu MuridTrial
-    }
-
-    $info = $student->informasi_bimba
-        ?? $student->informasi_humas_nama
-        ?? $student->informasi
-        ?? $student->info
-        ?? 'Dari Google Form';
-
-    // Jika SUDAH punya relasi trial → sync data penting saja
-    if ($student->murid_trial_id) {
-        $trial = $student->muridTrial;
-
-        $updates = [];
-        if (empty($trial->bimba_unit) && !empty($student->bimba_unit)) {
-            $updates['bimba_unit'] = $student->bimba_unit;
-        }
-        if (empty($trial->no_cabang) && !empty($student->no_cabang)) {
-            $updates['no_cabang'] = $student->no_cabang;
-        }
-        if (empty($trial->info) && !empty($info)) {
-            $updates['info'] = $info;
-        }
-        if (empty($trial->hari) && !empty($student->hari)) {
-            $updates['hari'] = $student->hari;
-        }
-        if (empty($trial->jam) && !empty($student->jam)) {
-            $updates['jam'] = $student->jam;
-        }
-
-        if (!empty($updates)) {
-            $trial->update($updates);
-        }
-
         return;
     }
 
-    // BUAT BARU → STATUS LANGSUNG 'baru' (bukan aktif!)
+    // Jika sudah punya MuridTrial → update saja
+    if ($student->murid_trial_id) {
+        $student->muridTrial?->update([
+            'bimba_unit' => $student->bimba_unit,
+            'no_cabang'  => $student->no_cabang,
+            'alamat'     => $student->alamat,
+        ]);
+        return;
+    }
+
+    // === CHECK DELAY 24 JAM ===
+    $createdAt = $student->created_at ?? $student->trial_started_at ?? now();
+    $sudah24Jam = $createdAt->lte(now()->subDay());
+
+    if (!$sudah24Jam) {
+        if (empty($student->trial_started_at)) {
+            $student->trial_started_at = now();
+            $student->trial_status = 'baru';
+            $student->saveQuietly();
+        }
+
+        Log::info('⏳ IMPORT DITUNDA - Trial Baru (belum 24 jam)', [
+            'student_id' => $student->id,
+            'nama'       => $student->nama,
+            'created_at' => $createdAt->format('Y-m-d H:i:s')
+        ]);
+        return;
+    }
+
+    // === SUDAH 24 JAM → BARU BUAT MURIDTRIAL ===
     try {
         $trial = MuridTrial::create([
-            'nama'          => $student->nama,
-            'status_trial'  => $status, // ← DI SINI: 'baru'
-            'kelas'         => $student->kelas ?? 'Reguler',
-            'tgl_lahir'     => $student->tgl_lahir,
-            'usia'          => $student->usia,
-            'orangtua'      => $student->orangtua,
-            'no_telp'       => $student->no_telp,
-            'alamat'        => $student->alamat,
-            'guru_trial'    => $student->guru_wali,
-            'tgl_mulai'     => $student->tanggal_masuk ?? now(),
-            'hari'          => $student->hari,
-            'jam'           => $student->jam,
-            'info'          => $info,
-            'bimba_unit'    => $student->bimba_unit,
-            'no_cabang'     => $student->no_cabang,
-            'petugas_trial' => $student->petugas_trial ?? null,
+            'nama'                => $student->nama,
+            'status_trial'        => 'baru',           // JANGAN 'aktif'
+            'kelas'               => $student->kelas ?? 'Reguler',
+            'tgl_lahir'           => $student->tgl_lahir,
+            'usia'                => $student->usia,
+            'orangtua'            => $student->orangtua,
+            'no_telp'             => $student->no_telp,
+            'alamat'              => $student->alamat,
+            'rt'                  => $student->rt,
+            'guru_trial'          => $student->guru_wali,
+            'bimba_unit'          => $student->bimba_unit,
+            'no_cabang'           => $student->no_cabang,
+            'tgl_mulai'           => $student->tanggal_masuk ?? now()->format('Y-m-d'),
+            'waktu_submit'        => $student->created_at ?? now(),
+            'tanggal_trial_baru'  => now()->format('Y-m-d'),
         ]);
 
-        $student->murid_trial_id = $trial->id;
-        $student->saveQuietly();
+        $student->update([
+            'murid_trial_id' => $trial->id,
+            'trial_status'   => 'baru'
+        ]);
 
-        Log::info('IMPORT: MuridTrial BARU dibuat dari Google Form → status: baru', [
+        Log::info('✅ MuridTrial DIBUAT setelah 24 jam (dari import)', [
             'trial_id'   => $trial->id,
             'student_id' => $student->id,
-            'nama'       => $trial->nama,
+            'nama'       => $student->nama
         ]);
 
     } catch (\Throwable $e) {
-        Log::error('IMPORT: Gagal buat MuridTrial', [
-            'student_id' => $student->id,
-            'nama'       => $student->nama,
-            'error'      => $e->getMessage(),
+        Log::error('Gagal create MuridTrial dari import', [
+            'nama'  => $student->nama,
+            'error' => $e->getMessage()
         ]);
-        report($e);
     }
 }
 

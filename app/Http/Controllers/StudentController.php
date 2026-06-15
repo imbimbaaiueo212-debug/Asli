@@ -351,8 +351,14 @@ if (!$isAdmin) {
 
         $student = Student::create($data);
 
+        // GANTI DARI INI:
+        // if ($student->source === 'trial') {
+        //     $this->ensureTrialRelation($student, 'aktif');
+        // }
+
+        // MENJADI INI:
         if ($student->source === 'trial') {
-            $this->ensureTrialRelation($student, 'aktif');
+            $this->ensureTrialRelation($student, 'baru');   // ← 'baru' bukan 'aktif'
         }
 
         if ($student->source === 'direct') {
@@ -608,7 +614,7 @@ protected function forceUpdateTrialToLanjutDaftar(Student $student): void
         $student->update($data);
 
         if (($student->source ?? null) === 'trial') {
-            $this->ensureTrialRelation($student, 'aktif');
+            $this->ensureTrialRelation($student, 'baru');
         }
 
         $bi = BukuInduk::where('nim', $student->nim)->first();
@@ -1119,78 +1125,49 @@ protected function preventDuplicateStudents(): void
         return response()->json(['data' => $data]);
     }
 
-    public function ensureTrialRelation(Student $student, string $status = 'baru'): void
+   protected function ensureTrialRelation(Student $student, string $status = 'baru', bool $force = false): void
 {
-    if ($student->source !== 'trial') {
-        return;
-    }
+    if ($student->source !== 'trial') return;
 
-    // === LOGIKA BARU: Jangan langsung buat MuridTrial kalau status masih 'baru' ===
-    if ($status === 'baru' || $student->trial_status === 'baru') {
-        // Hanya update timestamp mulai trial
-        if (empty($student->trial_started_at)) {
-            $student->trial_started_at = now();
-            $student->trial_status = 'baru';
-            $student->saveQuietly();
-        }
-        return; // JANGAN buat MuridTrial dulu
-    }
-
-    // === Kalau sudah 'aktif' baru buat MuridTrial ===
     if ($student->murid_trial_id) {
-        $trial = $student->muridTrial;
-        $updates = [];
-
-        if (empty($trial->bimba_unit) && !empty($student->bimba_unit)) {
-            $updates['bimba_unit'] = $student->bimba_unit;
-        }
-        if (empty($trial->no_cabang) && !empty($student->no_cabang)) {
-            $updates['no_cabang'] = $student->no_cabang;
-        }
-        if (!empty($updates)) {
-            $trial->update($updates);
-        }
+        $student->muridTrial?->update(['status_trial' => $status]);
         return;
     }
 
-    try {
-        $trial = MuridTrial::create([
-            'nama'               => $student->nama,
-            'tgl_mulai'          => $student->tanggal_masuk ?? now()->format('Y-m-d'),
-            'status_trial'       => 'aktif',           // langsung aktif
-            'kelas'              => $student->kelas ?? 'Reguler',
-            'tgl_lahir'          => $student->tgl_lahir,
-            'usia'               => $student->usia,
-            'orangtua'           => $student->orangtua,
-            'no_telp'            => $student->no_telp,
-            'alamat'             => $student->alamat,
-            'guru_trial'         => $student->guru_wali,
-            'bimba_unit'         => $student->bimba_unit,
-            'no_cabang'          => $student->no_cabang,
-            'tanggal_aktif'     => now()->format('Y-m-d'),
-            'tanggal_trial_baru' => $student->trial_started_at
-                ? Carbon::parse($student->trial_started_at)->format('Y-m-d')
-                : now()->format('Y-m-d'),
-        ]);
-
-        $student->murid_trial_id = $trial->id;
-        $student->trial_status   = 'aktif';
-        $student->saveQuietly();
-
-        $this->createHumasSafely($student);
-
-        Log::info('MuridTrial berhasil dibuat otomatis', [
-            'student_id' => $student->id,
-            'nama'       => $student->nama,
-            'status'     => 'aktif'
-        ]);
-
-    } catch (\Throwable $e) {
-        Log::error('Gagal create MuridTrial', [
-            'nama'  => $student->nama,
-            'error' => $e->getMessage()
-        ]);
+    if ($force || $student->created_at->lte(now()->subMinutes(5))) {  // test mode
+        $this->createMuridTrialNow($student, $status);
+    } else {
+        Log::info("⏳ Masih ditunda", ['nama' => $student->nama, 'menit' => $student->created_at->diffInMinutes(now())]);
     }
+}
+
+
+// Helper
+private function createMuridTrialNow(Student $student, string $status): void
+{
+    $trial = MuridTrial::create([
+        'nama'                => $student->nama,
+        'status_trial'        => $status,
+        'kelas'               => $student->kelas ?? 'Reguler',
+        'tgl_lahir'           => $student->tgl_lahir,
+        'usia'                => $student->usia,
+        'orangtua'            => $student->orangtua,
+        'no_telp'             => $student->no_telp,
+        'alamat'              => $student->alamat,
+        'guru_trial'          => $student->guru_wali,
+        'bimba_unit'          => $student->bimba_unit,
+        'no_cabang'           => $student->no_cabang,
+        'tgl_mulai'           => $student->tanggal_masuk ?? now()->format('Y-m-d'),
+        'waktu_submit'        => $student->created_at ?? now(),
+        'tanggal_trial_baru'  => now()->format('Y-m-d'),
+    ]);
+
+    $student->update([
+        'murid_trial_id' => $trial->id,
+        'trial_status'   => $status
+    ]);
+
+    Log::info("✅ MuridTrial dibuat via force", ['nama' => $student->nama, 'status' => $status]);
 }
 
 /**
