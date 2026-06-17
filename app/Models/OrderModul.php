@@ -4,13 +4,15 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Auth;
 use Carbon\Carbon;
 
 class OrderModul extends Model
 {
     use HasFactory;
 
-    protected $table = 'order_moduls'; // Jika tabel memang plural, biarkan. Jika singular, hapus baris ini.
+    protected $table = 'order_moduls';
 
     protected $fillable = [
         'tanggal_order',
@@ -26,105 +28,114 @@ class OrderModul extends Model
 
     protected $casts = [
         'tanggal_order' => 'date',
-        'jml1' => 'integer',
-        'jml2' => 'integer',
-        'jml3' => 'integer',
-        'jml4' => 'integer',
-        'jml5' => 'integer',
-        'hrg1' => 'integer',
-        'hrg2' => 'integer',
-        'hrg3' => 'integer',
-        'hrg4' => 'integer',
-        'hrg5' => 'integer',
-        'sts1' => 'boolean',
-        'sts2' => 'boolean',
-        'sts3' => 'boolean',
-        'sts4' => 'boolean',
-        'sts5' => 'boolean',
+        'jml1' => 'integer', 'jml2' => 'integer', 'jml3' => 'integer',
+        'jml4' => 'integer', 'jml5' => 'integer',
+        'hrg1' => 'integer', 'hrg2' => 'integer', 'hrg3' => 'integer',
+        'hrg4' => 'integer', 'hrg5' => 'integer',
+        'sts1' => 'boolean', 'sts2' => 'boolean', 'sts3' => 'boolean',
+        'sts4' => 'boolean', 'sts5' => 'boolean',
     ];
 
-    /**
-     * Relasi ke Unit biMBA
-     */
     public function unit()
     {
         return $this->belongsTo(Unit::class);
     }
 
-    /**
-     * Accessor: Ambil semua item order yang terisi (kode + jumlah > 0)
-     */
+    // Accessors (tetap sama)
     public function getItemsAttribute()
     {
         $items = [];
-
         for ($i = 1; $i <= 5; $i++) {
             $kode = $this->{'kode' . $i};
             $jumlah = $this->{'jml' . $i} ?? 0;
 
             if ($kode && $jumlah > 0) {
                 $items[] = [
-                    'minggu'        => $i,
-                    'kode'          => trim($kode),
-                    'jumlah'        => $jumlah,
-                    'harga_satuan'  => $this->{'hrg' . $i} / $jumlah, // jika hrg adalah total
-                    'harga_total'   => $this->{'hrg' . $i},
-                    'status_stok'   => $this->{'sts' . $i},
+                    'minggu'       => $i,
+                    'kode'         => trim($kode),
+                    'jumlah'       => $jumlah,
+                    'harga_satuan' => $this->{'hrg' . $i} / $jumlah,
+                    'harga_total'  => $this->{'hrg' . $i},
+                    'status_stok'  => $this->{'sts' . $i},
                 ];
             }
         }
-
-        return collect($items); // return Collection agar bisa chain method
+        return collect($items);
     }
 
-    /**
-     * Accessor: Total harga semua minggu
-     */
     public function getTotalHargaAttribute()
     {
         return $this->hrg1 + $this->hrg2 + $this->hrg3 + $this->hrg4 + $this->hrg5;
     }
 
-    /**
-     * Accessor: Tanggal order dalam format Indonesia
-     */
     public function getTanggalFormattedAttribute()
     {
         return $this->tanggal_order?->translatedFormat('d F Y') ?? '-';
     }
 
-    /**
-     * Scope: Filter berdasarkan tahun
-     */
+    // Scopes
+    public function scopeByUnit($query, $unitId)
+    {
+        return $query->where('unit_id', $unitId);
+    }
+
     public function scopeByYear($query, $year)
     {
         return $query->whereYear('tanggal_order', $year);
     }
 
-    /**
-     * Scope: Filter berdasarkan bulan & tahun
-     */
     public function scopeByMonth($query, $year, $month)
     {
         return $query->whereYear('tanggal_order', $year)
                      ->whereMonth('tanggal_order', $month);
     }
 
-    /**
-     * Scope: Filter berdasarkan unit
-     */
-    public function scopeByUnit($query, $unitId)
-    {
-        return $query->where('unit_id', $unitId);
-    }
-
-    /**
-     * Scope: Ambil order aktif bulan ini untuk unit tertentu
-     */
     public function scopeCurrentMonthForUnit($query, $unitId)
     {
         return $query->where('unit_id', $unitId)
                      ->whereMonth('tanggal_order', now()->month)
                      ->whereYear('tanggal_order', now()->year);
+    }
+
+    /**
+     * GLOBAL SCOPE UNIT
+     */
+    protected static function booted()
+    {
+        static::addGlobalScope('unit', function (Builder $builder) {
+            if (!Auth::check()) {
+                return;
+            }
+
+            $user = Auth::user();
+
+            // Admin & Superadmin boleh lihat semua
+            if ($user->is_admin ?? false || in_array($user->role ?? '', ['admin', 'superadmin', 'keuangan'])) {
+                return;
+            }
+
+            $userUnit     = trim($user->bimba_unit ?? '');
+            $userNoCabang = trim($user->no_cabang ?? '');
+
+            $builder->where(function ($q) use ($userUnit, $userNoCabang) {
+                // Filter berdasarkan relasi unit
+                if ($userUnit) {
+                    $q->whereHas('unit', function ($u) use ($userUnit) {
+                        $u->where('biMBA_unit', 'LIKE', "%{$userUnit}%");
+                    });
+                }
+
+                if ($userNoCabang) {
+                    $q->orWhereHas('unit', function ($u) use ($userNoCabang) {
+                        $u->where('no_cabang', $userNoCabang);
+                    });
+                }
+
+                // Unit khusus yang diizinkan
+                $q->orWhereHas('unit', function ($u) {
+                    $u->whereIn('no_cabang', ['00340', '05141', '01045']);
+                });
+            });
+        });
     }
 }

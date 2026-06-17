@@ -48,8 +48,8 @@ class Student extends Model
 
         $user = Auth::user();
 
-        // Admin & Superadmin → lihat semua
-        if ($user->is_admin ?? false || in_array($user->role ?? '', ['admin', 'superadmin'])) {
+        // Admin & Superadmin → boleh lihat semua data
+        if ($user->is_admin ?? false || in_array($user->role ?? '', ['admin', 'superadmin', 'keuangan'])) {
             return;
         }
 
@@ -57,7 +57,7 @@ class Student extends Model
         $userNoCabang = trim($user->no_cabang ?? '');
 
         $builder->where(function ($q) use ($userUnit, $userNoCabang) {
-            // Filter berdasarkan unit user yang login
+            // Filter utama berdasarkan unit user yang login
             if ($userUnit) {
                 $q->where('bimba_unit', 'LIKE', "%{$userUnit}%");
             }
@@ -65,16 +65,23 @@ class Student extends Model
                 $q->orWhere('no_cabang', $userNoCabang);
             }
 
-            // === DAFTAR UNIT YANG DIIZINKAN ===
-            $q->orWhere('bimba_unit', 'LIKE', '%VILLA BEKASI INDAH 2%')
-              ->orWhere('no_cabang', '00340')
+            // === UNIT KHUSUS YANG DIIZINKAN (Hanya tambahkan unit yang memang boleh) ===
+            // JANGAN pakai terlalu longgar
+            $allowedUnits = [];
 
-              ->orWhere('bimba_unit', 'LIKE', '%GRIYA PESONA MADANI%')
-              ->orWhere('no_cabang', '05141')
+            if (str_contains(strtolower($userUnit), 'villa bekasi indah')) {
+                $allowedUnits[] = '00340';
+            }
+            if (str_contains(strtolower($userUnit), 'griya pesona madani')) {
+                $allowedUnits[] = '05141';
+            }
+            if (str_contains(strtolower($userUnit), 'sapta taruna')) {
+                $allowedUnits[] = '01045';
+            }
 
-              ->orWhere('bimba_unit', 'LIKE', '%SAPTA TARUNA IV%')
-              ->orWhere('bimba_unit', 'LIKE', '%SAPTA TARUNA 4%')
-              ->orWhere('no_cabang', '01045');
+            foreach ($allowedUnits as $code) {
+                $q->orWhere('no_cabang', $code);
+            }
         });
     });
 }

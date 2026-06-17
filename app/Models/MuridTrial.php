@@ -40,47 +40,51 @@ class MuridTrial extends Model
 
     // ====================== BOOTED & CREATING ======================
     protected static function booted()
-    {
-        static::creating(function ($model) {
-            if (!$model->waktu_submit) {
-                $model->waktu_submit = now();
+{
+    static::addGlobalScope('unit', function (Builder $builder) {
+        if (!Auth::check()) {
+            return;
+        }
+
+        $user = Auth::user();
+
+        // Admin & Superadmin → boleh lihat semua data
+        if ($user->is_admin ?? false || in_array($user->role ?? '', ['admin', 'superadmin', 'keuangan'])) {
+            return;
+        }
+
+        $userUnit     = trim($user->bimba_unit ?? '');
+        $userNoCabang = trim($user->no_cabang ?? '');
+
+        $builder->where(function ($q) use ($userUnit, $userNoCabang) {
+            // Filter utama berdasarkan unit user yang login
+            if ($userUnit) {
+                $q->where('bimba_unit', 'LIKE', "%{$userUnit}%");
+            }
+            if ($userNoCabang) {
+                $q->orWhere('no_cabang', $userNoCabang);
             }
 
-            // DEFAULT STATUS YANG BENAR
-            if (empty($model->status_trial)) {
-                $model->status_trial = self::STATUS_DAFTAR_BARU;
+            // === UNIT KHUSUS YANG DIIZINKAN (Hanya tambahkan unit yang memang boleh) ===
+            // JANGAN pakai terlalu longgar
+            $allowedUnits = [];
+
+            if (str_contains(strtolower($userUnit), 'villa bekasi indah')) {
+                $allowedUnits[] = '00340';
+            }
+            if (str_contains(strtolower($userUnit), 'griya pesona madani')) {
+                $allowedUnits[] = '05141';
+            }
+            if (str_contains(strtolower($userUnit), 'sapta taruna')) {
+                $allowedUnits[] = '01045';
             }
 
-            if (empty($model->tanggal_trial_baru)) {
-                $model->tanggal_trial_baru = now()->format('Y-m-d');
+            foreach ($allowedUnits as $code) {
+                $q->orWhere('no_cabang', $code);
             }
         });
-
-        static::addGlobalScope('unit', function (Builder $builder) {
-            if (!Auth::check()) return;
-
-            $user = Auth::user();
-            if ($user->is_admin ?? false || in_array($user->role ?? '', ['admin', 'superadmin'])) {
-                return;
-            }
-
-            $userUnit = trim($user->bimba_unit ?? '');
-            $userNoCabang = trim($user->no_cabang ?? '');
-
-            $builder->where(function ($q) use ($userUnit, $userNoCabang) {
-                if ($userUnit) $q->where('bimba_unit', 'LIKE', "%{$userUnit}%");
-                if ($userNoCabang) $q->orWhere('no_cabang', $userNoCabang);
-
-                $q->orWhere('bimba_unit', 'LIKE', '%VILLA BEKASI INDAH 2%')
-                  ->orWhere('no_cabang', '00340')
-                  ->orWhere('bimba_unit', 'LIKE', '%GRIYA PESONA MADANI%')
-                  ->orWhere('no_cabang', '05141')
-                  ->orWhere('bimba_unit', 'LIKE', '%SAPTA TARUNA IV%')
-                  ->orWhere('bimba_unit', 'LIKE', '%SAPTA TARUNA 4%')
-                  ->orWhere('no_cabang', '01045');
-            });
-        });
-    }
+    });
+}
 
     // ====================== RELASI ======================
     public function student()
