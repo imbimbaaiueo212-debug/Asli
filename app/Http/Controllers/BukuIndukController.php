@@ -1919,4 +1919,17 @@ protected function convertJadwalToKode(?string $hariJam, ?string $jam = null): ?
     // Fallback
     return (string)($base + 9);
 }
+public function humasPrefill()
+{
+    $data = BukuInduk::where('status', 'Aktif')
+                ->select('nim', 'nama')
+                ->orderBy('nama')
+                ->get();
+
+    $formUrl   = "https://docs.google.com/forms/d/e/1wCr22kymeIs3w-EI8hdNjIhhK5i2QvmbX9okewrGov8/viewform";
+    $entryNim  = "entry.1921963196";     // ← Sudah benar
+    $entryNama = "entry.XXXXXXXXXX";     // ← Ganti nanti
+
+    return view('buku_induk.humas_prefill', compact('data', 'formUrl', 'entryNim', 'entryNama'));
+}
 }

@@ -280,6 +280,12 @@ Route::get('/statistik-murid', [BukuIndukStatistikController::class, 'index'])
     ->middleware('auth'); // sesuaikan dengan middleware kamu
     Route::get('/buku-induk/next-suffix', [BukuIndukController::class, 'nextSuffix'])->name('buku_induk.next_suffix');
 Route::get('/buku-induk/export', [BukuIndukController::class, 'export'])->name('buku_induk.export');
+Route::get('/buku-induk/export-to-sheet', [BukuIndukController::class, 'exportToSheet'])
+     ->name('buku_induk.exportToSheet');
+     // === ROUTE HUMAS PREFILL ===
+Route::get('/buku-induk/humas-prefill', [App\Http\Controllers\BukuIndukController::class, 'humasPrefill'])
+     ->name('buku_induk.humas-prefill');
+     
 
 
 //daftar murid deposit
@@ -427,34 +433,6 @@ Route::middleware('auth')->group(function () {
     Route::resource('spp', SppController::class);
 
 });
-
-
-// =========================================
-// CHAT SYSTEM
-// =========================================
-Route::middleware('auth')->prefix('chat')->name('chat.')->group(function () {
-
-    // Halaman Utama Chat (Daftar Percakapan)
-    Route::get('/', [App\Http\Controllers\ChatController::class, 'index'])
-         ->name('index');
-
-    // Halaman Chat dengan User Tertentu
-    Route::get('/{conversation}', [App\Http\Controllers\ChatController::class, 'show'])
-         ->name('show');
-
-    // Buat Percakapan Baru
-    Route::post('/create', [App\Http\Controllers\ChatController::class, 'createConversation'])
-         ->name('create');
-
-    // Mark as Read (opsional)
-    Route::post('/{conversation}/read', [App\Http\Controllers\ChatController::class, 'markAsRead'])
-         ->name('mark-as-read');
-});
-
-
-
-
-
 
 //Skim & Tunjangan
 Route::resource('skim', SkimController::class)->middleware('auth');

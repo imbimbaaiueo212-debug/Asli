@@ -22,8 +22,19 @@
         class="btn btn-info">
         <i class="fas fa-file-excel"></i> Unduh Data Excel
     </a>
+    {{-- TOMBOL EXPORT KE GOOGLE SHEET --}}
+    @if(auth()->check() && auth()->user()->email === 'oktaviandaaria@gmail.com')
+    <a href="{{ route('buku_induk.exportToSheet') }}" 
+        class="btn btn-warning">
+        <i class="fas fa-cloud-upload-alt"></i> Export ke Google Sheet
+    </a>
+    <a href="{{ route('buku_induk.humas-prefill') }}" 
+   class="btn btn-success">
+    <i class="fas fa-paper-plane"></i> Pre-fill ke Form Humas
+</a>
 @endif
-</div>
+    @endif
+    </div>
 
                 {{-- MODAL IMPORT --}}
                 <div class="modal fade" id="importModal" tabindex="-1" aria-labelledby="importModalLabel"
