@@ -10,6 +10,7 @@ use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Session;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\Validator;
@@ -680,7 +681,7 @@ protected function createVouchersAndFlash(\App\Models\WheelWinner $winner): bool
         });
 
         // Flash Result
-        \Session::flash('spinResult', [
+        Session::flash('spinResult', [
             'count' => count($createdRows),
             'nominal' => $voucherAmount,
             'nominal_formatted' => number_format($voucherAmount, 0, ',', '.'),
