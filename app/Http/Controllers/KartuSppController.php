@@ -115,7 +115,7 @@ class KartuSppController extends Controller
     }
 
     // AJAX untuk detail kartu SPP berdasarkan NIM
-   public function detail($nim)
+   public function detail($nim, Request $request)
 {
     /* ===============================
        DATA MURID
@@ -124,6 +124,12 @@ class KartuSppController extends Controller
     if (!$murid) {
         return response()->json(['message' => 'Data tidak ditemukan'], 404);
     }
+
+    /* ===============================
+       FILTER PERIODE (BARU)
+    =============================== */
+    $filterBulan = $request->get('bulan');   // contoh: 2
+    $filterTahun = $request->get('tahun');   // contoh: 2026
 
     /* ===============================
        UNIT
@@ -138,13 +144,10 @@ class KartuSppController extends Controller
     $unit = $unit ?? Unit::first();
 
     /* ===============================
-       SPP
+       SPP & TANGGAL MASUK
     =============================== */
     $sppMurid = $this->normalizeRupiah($murid->spp);
 
-    /* ===============================
-       TANGGAL MASUK
-    =============================== */
     $tglMasuk = $murid->tgl_masuk
         ? Carbon::parse($murid->tgl_masuk)->startOfMonth()
         : now()->startOfMonth();
@@ -155,66 +158,34 @@ class KartuSppController extends Controller
     $penerimaan = Penerimaan::where('nim', $murid->nim)->get();
 
     /* ===============================
-       CARI BULAN AKHIR (AMAN)
+       LOGIKA GRATIS
     =============================== */
-    $mapBulan = [
-        'januari' => 1, 'februari' => 2, 'maret' => 3, 'april' => 4,
-        'mei' => 5, 'juni' => 6, 'juli' => 7, 'agustus' => 8,
-        'september' => 9, 'oktober' => 10, 'november' => 11, 'desember' => 12,
-    ];
+    $gol = strtolower(trim($murid->gol ?? ''));
+    $isGratis = in_array($gol, ['d', 'dhuafa']);
+    $nominalPerVoucher = 50000;
 
-    $lastPembayaranDate = null;
-    foreach ($penerimaan as $p) {
-        if (!$p->bulan || !$p->tahun) continue;
-
-        $bulanKey = strtolower(trim($p->bulan));
-        if (!isset($mapBulan[$bulanKey])) continue;
-
-        $tgl = Carbon::create((int)$p->tahun, $mapBulan[$bulanKey], 1);
-        if (!$lastPembayaranDate || $tgl->gt($lastPembayaranDate)) {
-            $lastPembayaranDate = $tgl;
-        }
-    }
-
-    $lastVoucherDate = VoucherLama::where('nim', $murid->nim)->max('tanggal');
-
-    $bulanAkhir = collect([
-        now()->startOfMonth(),
-        $lastPembayaranDate?->startOfMonth(),
-        $lastVoucherDate ? Carbon::parse($lastVoucherDate)->startOfMonth() : null,
-    ])->filter()->max();
+    $riwayat = collect();
 
     /* ===============================
        RIWAYAT BULANAN
     =============================== */
-    $riwayat = collect();
-    $bulan = $tglMasuk->copy();
-    $nominalPerVoucher = 50000;
-
-    // === LOGIKA GRATIS (Gol D & Dhuafa) ===
-    $gol = strtolower(trim($murid->gol ?? ''));
-    $isGratis = in_array($gol, ['d', 'dhuafa']);
-
-    while ($bulan->lte($bulanAkhir)) {
-
-        $bulanNama  = $bulan->translatedFormat('F');
-        $tahun      = $bulan->year;
+    if ($filterBulan && $filterTahun) {
+        // ==================== HANYA SATU BULAN (FILTER) ====================
+        $bulan = Carbon::create((int)$filterTahun, (int)$filterBulan, 1);
+        $bulanNama = $bulan->translatedFormat('F');
+        $tahun = $bulan->year;
         $akhirBulan = $bulan->copy()->endOfMonth();
 
-        // pembayaran
         $pembayaran = $penerimaan
             ->filter(fn ($p) =>
-                strtolower(trim($p->bulan)) === strtolower($bulanNama)
+                strtolower(trim($p->bulan ?? '')) === strtolower($bulanNama)
                 && (int)$p->tahun === $tahun
             )
-            ->sortByDesc(function ($p) {
-                return (int)($p->spp ?? 0);
-            })
+            ->sortByDesc(fn($p) => (int)($p->spp ?? 0))
             ->first();
 
         $jumlahSpp = $pembayaran ? (int)($pembayaran->spp ?? 0) : 0;
 
-        // voucher akumulatif
         $voucherJumlah = VoucherLama::where('nim', $murid->nim)
             ->whereDate('tanggal', '<=', $akhirBulan)
             ->count();
@@ -225,22 +196,14 @@ class KartuSppController extends Controller
 
         $voucherSisa = max(0, $voucherJumlah - $voucherDipakai);
 
-        // STATUS - Khusus Gol D & Dhuafa
-        if ($isGratis) {
-            $statusBulan = 'Sudah bayar';
-        } else {
-            $statusBulan = ($jumlahSpp > 0 || $voucherDipakai > 0)
-                ? 'Sudah bayar'
-                : 'Belum bayar';
-        }
+        $statusBulan = $isGratis ? 'Sudah bayar' : ($jumlahSpp > 0 || $voucherDipakai > 0 ? 'Sudah bayar' : 'Belum bayar');
 
-        // tanggal transaksi
         $tanggalTransaksi = '-';
         if ($pembayaran && $pembayaran->tanggal) {
             $tanggalTransaksi = Carbon::parse($pembayaran->tanggal)->translatedFormat('d M Y');
         } else {
             $tglVoucher = VoucherHistori::where('nim', $murid->nim)
-                ->whereYear('tanggal_pemakaian', $bulan->year)
+                ->whereYear('tanggal_pemakaian', $tahun)
                 ->whereMonth('tanggal_pemakaian', $bulan->month)
                 ->orderBy('tanggal_pemakaian')
                 ->value('tanggal_pemakaian');
@@ -250,18 +213,9 @@ class KartuSppController extends Controller
             }
         }
 
-        // format voucher
-        $voucherJumlahText = $voucherJumlah > 0
-            ? $voucherJumlah . ' (' . $this->rupiah($voucherJumlah * $nominalPerVoucher) . ')'
-            : '-';
-
-        $voucherDipakaiText = $voucherDipakai > 0
-            ? $voucherDipakai . ' (' . $this->rupiah($voucherDipakai * $nominalPerVoucher) . ')'
-            : '0';
-
-        $voucherSisaText = $voucherSisa > 0
-            ? $voucherSisa . ' (' . $this->rupiah($voucherSisa * $nominalPerVoucher) . ')'
-            : '0';
+        $voucherJumlahText = $voucherJumlah > 0 ? $voucherJumlah . ' (' . $this->rupiah($voucherJumlah * $nominalPerVoucher) . ')' : '-';
+        $voucherDipakaiText = $voucherDipakai > 0 ? $voucherDipakai . ' (' . $this->rupiah($voucherDipakai * $nominalPerVoucher) . ')' : '0';
+        $voucherSisaText = $voucherSisa > 0 ? $voucherSisa . ' (' . $this->rupiah($voucherSisa * $nominalPerVoucher) . ')' : '0';
 
         $riwayat->push([
             'bulan'             => $bulanNama . ' ' . $tahun,
@@ -273,34 +227,130 @@ class KartuSppController extends Controller
             'jumlah'            => $jumlahSpp,
         ]);
 
-        $bulan->addMonth();
+    } else {
+        // ==================== TANPA FILTER (Kode Asli Anda) ====================
+        $mapBulan = [
+            'januari' => 1, 'februari' => 2, 'maret' => 3, 'april' => 4,
+            'mei' => 5, 'juni' => 6, 'juli' => 7, 'agustus' => 8,
+            'september' => 9, 'oktober' => 10, 'november' => 11, 'desember' => 12,
+        ];
+
+        $lastPembayaranDate = null;
+        foreach ($penerimaan as $p) {
+            if (!$p->bulan || !$p->tahun) continue;
+            $bulanKey = strtolower(trim($p->bulan));
+            if (!isset($mapBulan[$bulanKey])) continue;
+
+            $tgl = Carbon::create((int)$p->tahun, $mapBulan[$bulanKey], 1);
+            if (!$lastPembayaranDate || $tgl->gt($lastPembayaranDate)) {
+                $lastPembayaranDate = $tgl;
+            }
+        }
+
+        $lastVoucherDate = VoucherLama::where('nim', $murid->nim)->max('tanggal');
+
+        $bulanAkhir = collect([
+            now()->startOfMonth(),
+            $lastPembayaranDate?->startOfMonth(),
+            $lastVoucherDate ? Carbon::parse($lastVoucherDate)->startOfMonth() : null,
+        ])->filter()->max();
+
+        $bulan = $tglMasuk->copy();
+
+        while ($bulan->lte($bulanAkhir)) {
+            $bulanNama  = $bulan->translatedFormat('F');
+            $tahun      = $bulan->year;
+            $akhirBulan = $bulan->copy()->endOfMonth();
+
+            $pembayaran = $penerimaan
+                ->filter(fn ($p) =>
+                    strtolower(trim($p->bulan)) === strtolower($bulanNama)
+                    && (int)$p->tahun === $tahun
+                )
+                ->sortByDesc(function ($p) {
+                    return (int)($p->spp ?? 0);
+                })
+                ->first();
+
+            $jumlahSpp = $pembayaran ? (int)($pembayaran->spp ?? 0) : 0;
+
+            $voucherJumlah = VoucherLama::where('nim', $murid->nim)
+                ->whereDate('tanggal', '<=', $akhirBulan)
+                ->count();
+
+            $voucherDipakai = VoucherHistori::where('nim', $murid->nim)
+                ->whereDate('tanggal_pemakaian', '<=', $akhirBulan)
+                ->count();
+
+            $voucherSisa = max(0, $voucherJumlah - $voucherDipakai);
+
+            $statusBulan = $isGratis ? 'Sudah bayar' : ($jumlahSpp > 0 || $voucherDipakai > 0 ? 'Sudah bayar' : 'Belum bayar');
+
+            $tanggalTransaksi = '-';
+            if ($pembayaran && $pembayaran->tanggal) {
+                $tanggalTransaksi = Carbon::parse($pembayaran->tanggal)->translatedFormat('d M Y');
+            } else {
+                $tglVoucher = VoucherHistori::where('nim', $murid->nim)
+                    ->whereYear('tanggal_pemakaian', $bulan->year)
+                    ->whereMonth('tanggal_pemakaian', $bulan->month)
+                    ->orderBy('tanggal_pemakaian')
+                    ->value('tanggal_pemakaian');
+
+                if ($tglVoucher) {
+                    $tanggalTransaksi = Carbon::parse($tglVoucher)->translatedFormat('d M Y');
+                }
+            }
+
+            $voucherJumlahText = $voucherJumlah > 0 ? $voucherJumlah . ' (' . $this->rupiah($voucherJumlah * $nominalPerVoucher) . ')' : '-';
+            $voucherDipakaiText = $voucherDipakai > 0 ? $voucherDipakai . ' (' . $this->rupiah($voucherDipakai * $nominalPerVoucher) . ')' : '0';
+            $voucherSisaText = $voucherSisa > 0 ? $voucherSisa . ' (' . $this->rupiah($voucherSisa * $nominalPerVoucher) . ')' : '0';
+
+            $riwayat->push([
+                'bulan'             => $bulanNama . ' ' . $tahun,
+                'status'            => $statusBulan,
+                'tanggal_transaksi' => $tanggalTransaksi,
+                'voucher_jumlah'    => $voucherJumlahText,
+                'voucher_dipakai'   => $voucherDipakaiText,
+                'voucher_sisa'      => $voucherSisaText,
+                'jumlah'            => $jumlahSpp,
+            ]);
+
+            $bulan->addMonth();
+        }
     }
 
     /* ===============================
        STATUS HEADER
     =============================== */
-    $bulanSekarang = now()->locale('id')->translatedFormat('F');
-    $tahunSekarang = now()->year;
-
-    if ($isGratis) {
-        $statusBayar = 'Khusus Golongan (' . strtoupper($gol) . ')';
+    if ($filterBulan && $filterTahun) {
+        $bulanHeader = Carbon::create($filterTahun, $filterBulan, 1)->translatedFormat('F Y');
+        $statusBayar = $isGratis 
+            ? 'Khusus Golongan (' . strtoupper($gol) . ')'
+            : 'Status Bulan ' . $bulanHeader;
     } else {
-        $statusBayar = (
-            $penerimaan->first(fn ($p) =>
-                strtolower(trim($p->bulan)) === strtolower($bulanSekarang)
-                && (int)$p->tahun === $tahunSekarang
-                && (int)($p->spp ?? 0) > 0
+        $bulanSekarang = now()->locale('id')->translatedFormat('F');
+        $tahunSekarang = now()->year;
+
+        if ($isGratis) {
+            $statusBayar = 'Khusus Golongan (' . strtoupper($gol) . ')';
+        } else {
+            $statusBayar = (
+                $penerimaan->first(fn ($p) =>
+                    strtolower(trim($p->bulan)) === strtolower($bulanSekarang)
+                    && (int)$p->tahun === $tahunSekarang
+                    && (int)($p->spp ?? 0) > 0
+                )
+                || VoucherHistori::whereYear('tanggal_pemakaian', $tahunSekarang)
+                    ->whereMonth('tanggal_pemakaian', now()->month)
+                    ->exists()
             )
-            || VoucherHistori::whereYear('tanggal_pemakaian', $tahunSekarang)
-                ->whereMonth('tanggal_pemakaian', now()->month)
-                ->exists()
-        )
-            ? 'Sudah bayar SPP bulan ' . ucfirst($bulanSekarang)
-            : 'Belum bayar SPP bulan ' . ucfirst($bulanSekarang);
+                ? 'Sudah bayar SPP bulan ' . ucfirst($bulanSekarang)
+                : 'Belum bayar SPP bulan ' . ucfirst($bulanSekarang);
+        }
     }
 
     /* ===============================
-       RINGKASAN HEADER
+       RINGKASAN VOUCHER
     =============================== */
     $totalVoucher = VoucherLama::where('nim', $murid->nim)->count();
     $dipakaiTotal = VoucherHistori::where('nim', $murid->nim)->count();
