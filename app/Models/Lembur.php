@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Scopes\UnitScope;   // ← Tambahkan ini
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -18,7 +19,10 @@ class Lembur extends Model
         'jam_selesai',
         'total_jam',
         'keterangan',
-        'status'
+        'status',
+        // Tambahkan ini jika belum ada
+        'bimba_unit',
+        'no_cabang',
     ];
 
     protected $casts = [
@@ -33,9 +37,9 @@ class Lembur extends Model
         return $this->belongsTo(Profile::class);
     }
 
-    // Auto hitung total jam
     protected static function booted()
     {
+        // Auto hitung total jam (yang sudah ada)
         static::saving(function ($lembur) {
             if ($lembur->jam_awal && $lembur->jam_selesai) {
                 $awal = \Carbon\Carbon::parse($lembur->jam_awal);
@@ -45,5 +49,8 @@ class Lembur extends Model
                 $lembur->total_jam = round($diff, 2);
             }
         });
+
+        // ← TAMBAHKAN SCOPE DI SINI
+        static::addGlobalScope(new UnitScope());
     }
 }

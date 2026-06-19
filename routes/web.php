@@ -828,6 +828,7 @@ Route::get('/wheels/names', [WheelController::class, 'names'])->name('wheels.nam
 Route::get('/wheels/lookup', [WheelController::class, 'lookup'])->name('wheels.lookup');
 Route::post('/wheels/spin', [WheelController::class, 'spin'])->name('wheels.spin');
 Route::get('/wheels/history', [WheelController::class, 'history'])->name('wheels.history');
+Route::delete('/wheels/delete', [WheelController::class, 'delete'])->name('wheels.delete');
 
 /*
 |--------------------------------------------------------------------------

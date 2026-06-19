@@ -9,6 +9,7 @@ use App\Models\VoucherLama;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\Validator;
@@ -321,7 +322,7 @@ class WheelController extends Controller
     $humasCol = 'informasi_humas_nama';
     $studentNameCol = 'nama';
 
-    // ==================== 1. DATA DARI STUDENTS ====================
+    // ==================== STUDENTS ====================
     $fromStudents = DB::table('students')
         ->join('registrations', function ($join) {
             $join->on('registrations.student_id', '=', 'students.id')
@@ -340,7 +341,7 @@ class WheelController extends Controller
         ])
         ->get();
 
-    // ==================== 2. DATA DARI BUKU INDUK ====================
+    // ==================== BUKU INDUK ====================
     $fromBukuInduk = DB::table('buku_induk')
         ->where('info', 'humas')
         ->whereNotNull('nama_humas')
@@ -358,34 +359,61 @@ class WheelController extends Controller
 
     $rows = $fromStudents->merge($fromBukuInduk);
 
-    // Ambil data yang sudah menang
-    $usedRowHashes = WheelWinner::pluck('row_hash')->filter()->map(fn($v) => (string)$v)->toArray();
-    $usedNamesLower = WheelWinner::pluck('name')
-        ->filter()
-        ->map(fn($n) => mb_strtolower(trim((string)$n)))
+    // ==================== DATA PEMENANG ====================
+    $winnerHashes = WheelWinner::whereNotNull('row_hash')
+        ->pluck('row_hash')
+        ->map(fn($v) => trim((string) $v))
         ->toArray();
 
-    $seen = []; // Untuk deduplikasi di memory
+    $winnerNames = WheelWinner::pluck('name')
+        ->filter()
+        ->map(function ($n) {
+            return preg_replace(
+                '/\s+/',
+                ' ',
+                mb_strtolower(trim((string) $n))
+            );
+        })
+        ->toArray();
 
+    $seen = [];
     $out = [];
 
     foreach ($rows as $r) {
-        $referrerRaw = trim((string) $r->humas_name_raw);
-        if ($referrerRaw === '') continue;
 
-        $broughtRaw = trim((string) $r->student_name);
+        $referrerRaw = trim((string) ($r->humas_name_raw ?? ''));
+        $broughtRaw  = trim((string) ($r->student_name ?? ''));
 
-        // Buat key unik untuk deduplikasi
-        $uniqueKey = mb_strtolower($referrerRaw) . '|' . mb_strtolower($broughtRaw);
+        if ($referrerRaw === '') {
+            continue;
+        }
 
-        // Skip jika sudah pernah diproses
-        if (isset($seen[$uniqueKey])) continue;
+        // ====================
+        // DEDUP STUDENT + BUKU INDUK
+        // ====================
+        $uniqueKey =
+            mb_strtolower($referrerRaw)
+            . '|'
+            . mb_strtolower($broughtRaw);
+
+        if (isset($seen[$uniqueKey])) {
+            continue;
+        }
+
         $seen[$uniqueKey] = true;
 
-        // Buat row_hash yang konsisten
-        if ($r->source === 'student' && $r->student_id) {
+        // ====================
+        // GENERATE HASH
+        // ====================
+        if (
+            $r->source === 'student'
+            && !empty($r->student_id)
+        ) {
+
             $rowHash = md5('stu:' . $r->student_id);
+
         } else {
+
             $rowHash = md5(json_encode([
                 $r->nim_murid,
                 $r->student_name,
@@ -394,15 +422,52 @@ class WheelController extends Controller
             ], JSON_UNESCAPED_UNICODE));
         }
 
-        // Skip jika sudah menang
-        if (in_array($rowHash, $usedRowHashes, true)) continue;
+        // ====================
+        // DISPLAY NAME
+        // ====================
+        $displayName = strtoupper(trim($referrerRaw));
 
-        $displayName = $referrerRaw;
-        if ($broughtRaw) {
-            $displayName = strtoupper($referrerRaw) . ' (' . $broughtRaw . ')';
+        if ($broughtRaw !== '') {
+            $displayName .= ' (' . trim($broughtRaw) . ')';
         }
 
-        if (in_array(mb_strtolower($displayName), $usedNamesLower, true)) continue;
+        $normalizedName = preg_replace(
+            '/\s+/',
+            ' ',
+            mb_strtolower(trim($displayName))
+        );
+
+        // ====================
+        // SUDAH MENANG BERDASARKAN HASH
+        // ====================
+        if (in_array($rowHash, $winnerHashes, true)) {
+            continue;
+        }
+
+        // ====================
+        // SUDAH MENANG BERDASARKAN NAMA
+        // ====================
+        if (in_array($normalizedName, $winnerNames, true)) {
+            continue;
+        }
+
+        // ====================
+        // DOUBLE CHECK DATABASE
+        // ====================
+        if (
+            WheelWinner::where('row_hash', $rowHash)->exists()
+        ) {
+            continue;
+        }
+
+        if (
+            WheelWinner::whereRaw(
+                'LOWER(TRIM(name)) = ?',
+                [$normalizedName]
+            )->exists()
+        ) {
+            continue;
+        }
 
         $out[] = [
             'student_id'    => $r->student_id,
@@ -417,12 +482,15 @@ class WheelController extends Controller
         ];
     }
 
-    // Sort by referrer name
-    usort($out, fn($a, $b) => strcasecmp($a['referrer_name'], $b['referrer_name']));
+    usort($out, function ($a, $b) {
+        return strcasecmp(
+            $a['referrer_name'],
+            $b['referrer_name']
+        );
+    });
 
     return $out;
 }
-
   public function spin(Request $request)
 {
     $request->validate([
@@ -694,5 +762,26 @@ public function getParentSpinLink(Request $request)
             'error' => 'Internal error: ' . $e->getMessage()
         ], 500);
     }
+}
+
+public function delete(Request $request)
+{
+    $user = Auth::user();
+    if (!in_array($user->role ?? '', ['admin', 'superadmin'])) {
+        return response()->json(['success' => false, 'message' => 'Hanya admin yang boleh menghapus'], 403);
+    }
+
+    $request->validate(['row_hash' => 'required|string']);
+
+    // Sesuaikan dengan model Anda
+    $deleted = DB::table('wheel_participants') // atau nama tabel Anda
+                ->where('row_hash', $request->row_hash)
+                ->delete();
+
+    if ($deleted) {
+        return response()->json(['success' => true]);
+    }
+
+    return response()->json(['success' => false, 'message' => 'Data tidak ditemukan'], 404);
 }
 }

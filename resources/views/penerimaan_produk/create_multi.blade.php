@@ -80,9 +80,7 @@
                         <div class="col-md-4">
                             <label class="form-label fw-bold">Tanggal Penerimaan <span class="text-danger">*</span></label>
                             <input type="date" name="tanggal" id="tanggal" class="form-control form-control-lg rounded-3 shadow-sm"
-       value="{{ $selectedTanggal ?? now()->format('Y-m-d') }}" required
-       onblur="filterProduk()"
-       onkeydown="if(event.key === 'Enter') filterProduk();">
+                                   value="{{ $selectedTanggal ?? now()->format('Y-m-d') }}" required onchange="filterProduk()">
                             @error('tanggal') <div class="text-danger small mt-1">{{ $message }}</div> @enderror
                         </div>
                     </div>
@@ -242,82 +240,8 @@
         </form>
     </div>
 
-    <!-- Select2 CSS -->
-<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
-
-<!-- Select2 JS -->
-<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
-
-   <script>
+    <script>
 /* ================= UTIL ================= */
-let rowIndex = 1;   // ← dipindah ke atas agar tidak duplikat
-
-/* ================= SELECT2 INIT ================= */
-function initSelect2() {
-    // 🔥 FIX UTAMA: Destroy dulu semua Select2 sebelum init ulang
-    $('.label-select').select2('destroy');
-
-    $('.label-select').select2({
-        placeholder: "-- Pilih atau Ketik Nama Produk --",
-        allowClear: true,
-        width: '100%',
-        language: {
-            noResults: function() {
-                return "Produk tidak ditemukan";
-            }
-        }
-    }).on('change', function() {
-        isiOtomatis(this);
-        updateAllDropdowns();
-    });
-}
-
-/* ================= ROW HANDLER ================= */
-document.getElementById('tambah-baris').addEventListener('click', () => {
-    const tbody = document.querySelector('#tabel-produk tbody');
-    const template = tbody.querySelector('.baris-produk');
-    const newRow = template.cloneNode(true);
-
-    newRow.querySelectorAll('input, select, textarea').forEach(el => {
-        el.value = '';
-        if (el.classList.contains('order-field')) el.value = 0;
-        if (el.classList.contains('jumlah-field')) el.value = 0;
-
-        if (el.name) el.name = el.name.replace(/\[\d+\]/, `[${rowIndex}]`);
-    });
-
-    newRow.querySelector('.harga-satuan-display').textContent = '';
-    newRow.querySelector('.total-row-display').textContent = 'Rp 0';
-
-    tbody.appendChild(newRow);
-    rowIndex++;
-
-    document.getElementById('total-item').textContent =
-        document.querySelectorAll('.baris-produk').length;
-
-    updateGrandTotal();
-    updateAllDropdowns();
-
-    // Inisialisasi Select2 pada baris baru
-    initSelect2();
-});
-
-/* ================= INIT SELECT2 SAAT LOAD ================= */
-document.addEventListener('DOMContentLoaded', () => {
-    updateGrandTotal();
-    updateAllDropdowns();
-    initSelect2();   // ← Sudah benar
-
-    // Hanya trigger filterProduk SAAT PERTAMA KALI LOAD...
-    const currentParams = new URLSearchParams(window.location.search);
-    if (!currentParams.has('unit_id') && !currentParams.has('tanggal')) {
-        const unitEl = document.querySelector('[name="unit_id"]');
-        if (unitEl && unitEl.value) {
-            filterProduk();
-        }
-    }
-});
-
 function formatAngka(angka) {
     if (!angka || angka == 0) return '0';
     return parseInt(angka).toLocaleString('id-ID');
@@ -412,6 +336,7 @@ function filterProduk() {
 
     const params = new URLSearchParams(window.location.search);
 
+    // Update hanya jika ada perubahan
     let needReload = false;
 
     if (unitId && params.get('unit_id') !== unitId) {
@@ -423,12 +348,41 @@ function filterProduk() {
         needReload = true;
     }
 
+    // Jika ada perubahan → reload
     if (needReload) {
         window.location.search = params.toString();
     }
 }
 
-/* ================= ROW HANDLER (HAPUS YANG DUPLIKAT) ================= */
+/* ================= ROW HANDLER ================= */
+let rowIndex = 1;
+
+document.getElementById('tambah-baris').addEventListener('click', () => {
+    const tbody = document.querySelector('#tabel-produk tbody');
+    const template = tbody.querySelector('.baris-produk');
+    const newRow = template.cloneNode(true);
+
+    newRow.querySelectorAll('input, select, textarea').forEach(el => {
+        el.value = '';
+        if (el.classList.contains('order-field')) el.value = 0;
+        if (el.classList.contains('jumlah-field')) el.value = 0;
+
+        if (el.name) el.name = el.name.replace(/\[\d+\]/, `[${rowIndex}]`);
+    });
+
+    newRow.querySelector('.harga-satuan-display').textContent = '';
+    newRow.querySelector('.total-row-display').textContent = 'Rp 0';
+
+    tbody.appendChild(newRow);
+    rowIndex++;
+
+    document.getElementById('total-item').textContent =
+        document.querySelectorAll('.baris-produk').length;
+
+    updateGrandTotal();
+    updateAllDropdowns();
+});
+
 document.addEventListener('click', e => {
     if (e.target.closest('.hapus-baris')) {
         if (document.querySelectorAll('.baris-produk').length > 1) {
@@ -478,6 +432,21 @@ document.addEventListener('input', function (e) {
     if (e.target.classList.contains('jumlah-field')) {
         const row = e.target.closest('tr');
         hitungTotalRow(row);
+    }
+});
+
+/* ================= INIT ================= */
+document.addEventListener('DOMContentLoaded', () => {
+    updateGrandTotal();
+    updateAllDropdowns();
+
+    // Hanya trigger filterProduk SAAT PERTAMA KALI LOAD dan BELUM ADA QUERY STRING
+    const currentParams = new URLSearchParams(window.location.search);
+    if (!currentParams.has('unit_id') && !currentParams.has('tanggal')) {
+        const unitEl = document.querySelector('[name="unit_id"]');
+        if (unitEl && unitEl.value) {
+            filterProduk(); // hanya sekali saat pertama kali masuk tanpa filter
+        }
     }
 });
 </script>

@@ -283,61 +283,81 @@
     </div>
   @endif
 
-              {{-- FORM FILTER: Nama Murid + Range Tanggal + BIMBA UNIT (KHUSUS ADMIN) --}}
-              <div class="card mb-4 border-primary shadow-sm">
-                  <div class="card-header bg-primary text-white">
-                      <h5 class="mb-0"><i class="bi bi-funnel"></i> Filter Voucher</h5>
-                  </div>
-                  <div class="card-body">
-                      <form method="GET" action="{{ route('voucher.index') }}" class="row g-3 align-items-end">
-                          <!-- Nama Murid (Dropdown) -->
-                          <div class="col-md-4">
-                <label class="form-label fw-semibold">NIM | Nama Murid / Murid Baru</label>
-                <select name="nama_murid" class="form-select">
-                    <option value="">-- Semua --</option>
-                    @foreach($namaMurid as $display)
-                        <option value="{{ $display }}" {{ request('nama_murid') == $display ? 'selected' : '' }}>
-                            {{ $display }}
-                        </option>
-                    @endforeach
+             {{-- FILTER & SEARCH --}}
+<div class="card mb-4 border-primary shadow-sm">
+    <div class="card-header bg-primary text-white">
+        <h5 class="mb-0"><i class="bi bi-funnel"></i> Filter & Pencarian Voucher</h5>
+    </div>
+    <div class="card-body">
+        <form method="GET" action="{{ route('voucher.index') }}" class="row g-3 align-items-end">
+
+            <!-- Search -->
+            <div class="col-lg-3 col-md-4">
+                <label class="form-label fw-semibold">Cari</label>
+                <input type="text" name="search" class="form-control" 
+                       placeholder="No Voucher, Nama, NIM..." 
+                       value="{{ request('search') }}">
+            </div>
+
+            <!-- Nama Murid -->
+<div class="col-lg-3 col-md-4">
+    <label class="form-label fw-semibold">NIM | Nama Murid</label>
+    <select name="nama_murid" id="namaMuridSelect" class="form-select">
+        <option value="">-- Semua Murid --</option>
+        @foreach($namaMurid as $display)
+            <option value="{{ $display }}" {{ request('nama_murid') == $display ? 'selected' : '' }}>
+                {{ $display }}
+            </option>
+        @endforeach
+    </select>
+</div>
+            <!-- Tanggal Dari -->
+            <div class="col-lg-2 col-md-3">
+                <label class="form-label fw-semibold">Tanggal Dari</label>
+                <input type="date" name="tanggal_dari" class="form-control" value="{{ request('tanggal_dari') }}">
+            </div>
+
+            <!-- Tanggal Sampai -->
+            <div class="col-lg-2 col-md-3">
+                <label class="form-label fw-semibold">Tanggal Sampai</label>
+                <input type="date" name="tanggal_sampai" class="form-control" value="{{ request('tanggal_sampai') }}">
+            </div>
+
+            <!-- Unit Bimba (Admin) -->
+            @if(auth()->user()->isAdminUser())
+                <div class="col-lg-2 col-md-3">
+                    <label class="form-label fw-semibold">Unit Bimba</label>
+                    <select name="bimba_unit" class="form-select">
+                        <option value="">-- Semua Unit --</option>
+                        @foreach($listBimbaUnit as $unit)
+                            <option value="{{ $unit }}" {{ request('bimba_unit') == $unit ? 'selected' : '' }}>
+                                {{ $unit }}
+                            </option>
+                        @endforeach
+                    </select>
+                </div>
+            @endif
+
+            <!-- Jumlah Per Halaman -->
+            <div class="col-lg-2 col-md-3">
+                <label class="form-label fw-semibold">Tampilkan</label>
+                <select name="per_page" class="form-select">
+                    <option value="5" {{ request('per_page', 5) == 5 ? 'selected' : '' }}>5</option>
+                    <option value="10" {{ request('per_page', 10) == 10 ? 'selected' : '' }}>10</option>
+                    <option value="20" {{ request('per_page') == 20 ? 'selected' : '' }}>20</option>
+                    <option value="50" {{ request('per_page') == 50 ? 'selected' : '' }}>50</option>
+                    <option value="100" {{ request('per_page') == 100 ? 'selected' : '' }}>100</option>
                 </select>
             </div>
 
-              <!-- Tanggal Dari -->
-              <div class="col-md-3">
-                  <label class="form-label fw-semibold">Tanggal Dari</label>
-                  <input type="date" name="tanggal_dari" class="form-control" value="{{ request('tanggal_dari') }}">
-              </div>
-
-              <!-- Tanggal Sampai -->
-              <div class="col-md-3">
-                  <label class="form-label fw-semibold">Tanggal Sampai</label>
-                  <input type="date" name="tanggal_sampai" class="form-control" value="{{ request('tanggal_sampai') }}">
-              </div>
-
-              <!-- Filter Bimba Unit - HANYA UNTUK ADMIN -->
-              @if(auth()->check() && auth()->user()->role === 'admin')  <!-- <-- GANTI sesuai cara cek admin di projectmu -->
-                  <div class="col-md-4">
-                      <label class="form-label fw-semibold">Unit Bimba</label>
-                      <select name="bimba_unit" class="form-select">
-                          <option value="">-- Semua Unit --</option>
-                          @foreach($listBimbaUnit as $unit)
-                              <option value="{{ $unit }}" {{ request('bimba_unit') == $unit ? 'selected' : '' }}>
-                                  {{ $unit }}
-                              </option>
-                          @endforeach
-                      </select>
-                  </div>
-              @endif
-
-              <!-- Tombol Filter -->
-              <div class="col-md-2">
-                  <button type="submit" class="btn btn-primary w-100">
-                      <i class="bi bi-search"></i> Filter
-                  </button>
-              </div>
-          </form>
-
+            <!-- Tombol -->
+            <div class="col-lg-2 col-md-3 d-flex align-items-end gap-2">
+                <button type="submit" class="btn btn-primary flex-grow-1">
+                    <i class="bi bi-search"></i> Terapkan
+                </button>
+                <a href="{{ route('voucher.index') }}" class="btn btn-outline-secondary">Reset</a>
+            </div>
+        </form>
           <!-- Tombol Reset Filter (diperbarui agar include bimba_unit juga) -->
           @if(request()->hasAny(['nama_murid', 'tanggal_dari', 'tanggal_sampai', 'bimba_unit']))
               <div class="mt-3 text-end">
@@ -360,7 +380,14 @@
           <thead class="table-light">
             <tr>
               <th>NO</th>
-              <th>TIPE</th>
+              <th>NAMA MURID (Humas)</th>
+              <th>TELP/HP (humas)</th>
+              <th>ORANGTUA (Humas)</th>
+              <th>NIM (Humas)</th>
+              <th>NAMA MURID BARU</th>
+              <th>TELP/HP ORANG TUA MURID BARU</th>
+              <th>ORANGTUA MURID BARU</th>
+              <th>NIM MURID BARU</th>
               <th>HISTORY SPIN</th>
               <th>NO. VOUCHER</th>
               <th>JUMLAH VOUCHER</th>
@@ -368,188 +395,210 @@
               <th>TANGGAL SPIN</th>
               <th>TANGGAL PENYERAHAN</th>
               <th>STATUS</th>
-              <th>NIM (Humas)</th>
-              <th>NAMA MURID (Humas)</th>
+              <th>TIPE</th>
               <th>Bimba Unit</th>
-              <th>No Cabang</th>
-              <th>ORANGTUA</th>
-              <th>TELP/HP</th>
-              <th>NIM MURID BARU</th>
-              <th>NAMA MURID BARU</th>
-              <th>ORANGTUA MURID BARU</th>
-              <th>TELP/HP ORANG TUA MURID BARU</th>
+              <th>No Cabang</th>         
               <th>TANGGAL PEMAKAIAN</th>
               <th>BUKTI</th>
               <th>ACTION</th>
             </tr>
           </thead>
           <tbody>
-            @foreach($vouchers as $index => $v)
-                  @php
-                      $tipe = $v->tipe_voucher ?? 'regular';
+    @foreach($vouchers as $index => $v)
+        @php
+            $tipe = $v->tipe_voucher ?? 'regular';
 
-                      $rowClass = match($tipe) {
-                          'event' => 'table-info',
-                          'lainnya' => 'table-warning',
-                          default => ''
-                      };
+            $rowClass = match($tipe) {
+                'event' => 'table-info',
+                'lainnya' => 'table-warning',
+                default => ''
+            };
 
-                      $badgeClass = match($tipe) {
-                          'event' => 'bg-info',
-                          'lainnya' => 'bg-warning text-dark',
-                          default => 'bg-primary'
-                      };
+            $badgeClass = match($tipe) {
+                'event' => 'bg-info',
+                'lainnya' => 'bg-warning text-dark',
+                default => 'bg-primary'
+            };
 
-                      $badgeText = match($tipe) {
-                          'event' => 'EVENT',
-                          'lainnya' => 'LAINNYA',
-                          default => 'HUMAS'
-                      };
-                  @endphp
+            $badgeText = match($tipe) {
+                'event' => 'EVENT',
+                'lainnya' => 'LAINNYA',
+                default => 'HUMAS'
+            };
+        @endphp
 
-                  <tr class="{{ $rowClass }}">
-                <td>{{ $index + 1 }}</td>
-                <td>
-                    <span class="badge {{ $badgeClass }}">
-                        {{ $badgeText }}
-                    </span>
-                </td>
-                <td>{{ $v->voucher ?? '-' }}</td>
-                <td>
-                  <div class="position-relative">
-                    <input type="text" class="form-control form-control-sm inline-edit" data-id="{{ $v->id }}"
-                      data-field="no_voucher" value="{{ old('no_voucher.' . $v->id, $v->no_voucher) }}"
-                      placeholder="Belum diisi" style="min-width:140px;">
+        <tr class="{{ $rowClass }}">
+            <!-- 1. NO -->
+            <td>{{ $index + 1 }}</td>
+
+            <!-- 2. NAMA MURID (Humas) -->
+            <td>{{ $v->nama_murid ?? '-' }}</td>
+
+            <!-- 3. TELP/HP (Humas) -->
+            <td>{{ $v->telp_hp ?? '-' }}</td>
+
+            <!-- 4. ORANGTUA (Humas) -->
+            <td>{{ $v->orangtua ?? '-' }}</td>
+
+            <!-- 5. NIM (Humas) -->
+            <td>{{ $v->nim ?? '-' }}</td>
+
+            <!-- 6. NAMA MURID BARU -->
+            <td>{{ $v->nama_murid_baru ?? '-' }}</td>
+
+            <!-- 7. TELP/HP ORANG TUA MURID BARU -->
+            <td>{{ $v->telp_hp_murid_baru ?? '-' }}</td>
+
+            <!-- 8. ORANGTUA MURID BARU -->
+            <td>{{ $v->orangtua_murid_baru ?? '-' }}</td>
+
+            <!-- 9. NIM MURID BARU -->
+            <td>{{ $v->nim_murid_baru ?? '-' }}</td>
+
+            <!-- 10. HISTORY SPIN -->
+            <td>{{ $v->voucher ?? '-' }}</td>
+
+            <!-- 11. NO. VOUCHER -->
+            <td>
+                <div class="position-relative">
+                    <input type="text" class="form-control form-control-sm inline-edit" 
+                           data-id="{{ $v->id }}" data-field="no_voucher" 
+                           value="{{ old('no_voucher.' . $v->id, $v->no_voucher) }}"
+                           placeholder="Belum diisi" style="min-width:140px;">
                     <div class="invalid-feedback small mt-1 d-none inline-error" id="error-no_voucher-{{ $v->id }}"></div>
-                  </div>
-                </td>
-                <td>{{ $v->jumlah_voucher }}</td>
-                <td>Rp {{ number_format(($v->jumlah_voucher ?? 0) * 50000, 0, ',', '.') }}</td>
-                <td>
-                  @if(!empty($v->tanggal))
+                </div>
+            </td>
+
+            <!-- 12. JUMLAH VOUCHER -->
+            <td>{{ $v->jumlah_voucher }}</td>
+
+            <!-- 13. NOMINAL (Rp) -->
+            <td>Rp {{ number_format(($v->jumlah_voucher ?? 0) * 50000, 0, ',', '.') }}</td>
+
+            <!-- 14. TANGGAL SPIN -->
+            <td>
+                @if(!empty($v->tanggal))
                     {{ \Carbon\Carbon::parse($v->tanggal)->format('d-m-Y') }}
-                  @else
+                @else
                     <span class="text-muted">—</span>
-                  @endif
-                </td>
-                <td>
-  <div class="position-relative">
-    <input 
-      type="date" 
-      class="form-control form-control-sm inline-edit" 
-      data-id="{{ $v->id }}"
-      data-field="tanggal_penyerahan"
-      value="{{ $v->tanggal_penyerahan ? \Carbon\Carbon::parse($v->tanggal_penyerahan)->format('Y-m-d') : '' }}"
-      style="min-width:150px;"
-    >
-    
-    <small class="d-block text-muted mt-1 tanggal-format-{{ $v->id }}">
-      @if($v->tanggal_penyerahan)
-        {{ \Carbon\Carbon::parse($v->tanggal_penyerahan)->format('d-m-Y') }}
-      @else
-        Belum diisi
-      @endif
-    </small>
+                @endif
+            </td>
 
-    <div class="invalid-feedback small mt-1 d-none inline-error" id="error-tanggal_penyerahan-{{ $v->id }}"></div>
-  </div>
-</td>
-                <td class="status-cell-{{ $v->id }}">
-                  @php $st = $v->status ?? null; @endphp
+            <!-- 15. TANGGAL PENYERAHAN -->
+            <td>
+                <div class="position-relative">
+                    <input type="date" class="form-control form-control-sm inline-edit" 
+                           data-id="{{ $v->id }}" data-field="tanggal_penyerahan"
+                           value="{{ $v->tanggal_penyerahan ? \Carbon\Carbon::parse($v->tanggal_penyerahan)->format('Y-m-d') : '' }}"
+                           style="min-width:150px;">
+                    
+                    <small class="d-block text-muted mt-1 tanggal-format-{{ $v->id }}">
+                        @if($v->tanggal_penyerahan)
+                            {{ \Carbon\Carbon::parse($v->tanggal_penyerahan)->format('d-m-Y') }}
+                        @else
+                            Belum diisi
+                        @endif
+                    </small>
 
-                  @if($st === 'Digunakan')
+                    <div class="invalid-feedback small mt-1 d-none inline-error" id="error-tanggal_penyerahan-{{ $v->id }}"></div>
+                </div>
+            </td>
+
+            <!-- 16. STATUS -->
+            <td class="status-cell-{{ $v->id }}">
+                @php $st = $v->status ?? null; @endphp
+                @if($st === 'Digunakan' || $v->jumlah_voucher <= 0)
                     <span class="badge bg-dark">Digunakan</span>
-                  @elseif($v->jumlah_voucher <= 0)
-                    <span class="badge bg-dark">Digunakan</span>
-                  @elseif($st === 'pemakaian')
+                @elseif($st === 'pemakaian')
                     <span class="badge bg-warning text-dark">Dalam Pemakaian</span>
-                  @elseif($st === 'penyerahan' || !empty($v->tanggal_penyerahan))
+                @elseif($st === 'penyerahan' || !empty($v->tanggal_penyerahan))
                     <span class="badge bg-success">Penyerahan</span>
-                  @else
+                @else
                     <span class="badge bg-danger">Belum Diserahkan</span>
-                  @endif
-                </td>
+                @endif
+            </td>
 
-                <td>{{ $v->nim ?? '-' }}</td>
-                <td>{{ $v->nama_murid ?? '-' }}</td>
-                <td>{{ $v->bimba_unit }}</td>
-                <td>{{ $v->no_cabang }}</td>
-                <td>{{ $v->orangtua ?? '-' }}</td>
-                <td>{{ $v->telp_hp ?? '-' }}</td>
-                <td>{{ $v->nim_murid_baru ?? '-' }}</td>
-                <td>{{ $v->nama_murid_baru ?? '-' }}</td>
-                <td>{{ $v->orangtua_murid_baru ?? '-' }}</td>
-                <td>{{ $v->telp_hp_murid_baru ?? '-' }}</td>
-                <td>
-                  @php $tp = $v->histori->first()->tanggal_pemakaian ?? null; @endphp
-                  @if($tp) {{ \Carbon\Carbon::parse($tp)->format('d M Y') }} @else <span class="text-muted">—</span> @endif
-                </td>
+            <!-- 17. TIPE -->
+            <td>
+                <span class="badge {{ $badgeClass }}">{{ $badgeText }}</span>
+            </td>
 
-                {{-- BUKTI --}}
-                <td class="align-middle">
-                  @if(!empty($v->bukti_penyerahan_path))
+            <!-- 18. Bimba Unit -->
+            <td>{{ $v->bimba_unit }}</td>
+
+            <!-- 19. No Cabang -->
+            <td>{{ $v->no_cabang }}</td>
+
+            <!-- 20. TANGGAL PEMAKAIAN -->
+            <td>
+                @php $tp = $v->histori->first()->tanggal_pemakaian ?? null; @endphp
+                @if($tp) 
+                    {{ \Carbon\Carbon::parse($tp)->format('d M Y') }} 
+                @else 
+                    <span class="text-muted">—</span> 
+                @endif
+            </td>
+
+            <!-- 21. BUKTI -->
+            <td class="align-middle">
+                @if(!empty($v->bukti_penyerahan_path))
                     @php
-                      $cleanPath = preg_replace('#^public/#', '', $v->bukti_penyerahan_path);
-                      $path = asset('storage/' . $cleanPath);
-                      $ext = strtolower(pathinfo($cleanPath, PATHINFO_EXTENSION));
+                        $cleanPath = preg_replace('#^public/#', '', $v->bukti_penyerahan_path);
+                        $path = asset('storage/' . $cleanPath);
+                        $ext = strtolower(pathinfo($cleanPath, PATHINFO_EXTENSION));
                     @endphp
 
                     @if(in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp']))
-                      <a href="javascript:void(0)" class="d-inline-block me-2 bukti-preview-trigger" data-type="image"
-                        data-src="{{ $path }}" title="Lihat bukti">
-                        <img src="{{ $path }}" alt="bukti"
-                          style="height:36px; width:auto; border-radius:4px; box-shadow:0 1px 3px rgba(0,0,0,0.08)">
-                      </a>
+                        <a href="javascript:void(0)" class="d-inline-block me-2 bukti-preview-trigger" 
+                           data-type="image" data-src="{{ $path }}" title="Lihat bukti">
+                            <img src="{{ $path }}" alt="bukti"
+                                 style="height:36px; width:auto; border-radius:4px; box-shadow:0 1px 3px rgba(0,0,0,0.08)">
+                        </a>
                     @elseif($ext === 'pdf')
-                      <a href="javascript:void(0)"
-                        class="badge bg-secondary text-white text-decoration-none me-2 bukti-preview-trigger" data-type="pdf"
-                        data-src="{{ $path }}">PDF</a>
+                        <a href="javascript:void(0)" class="badge bg-secondary text-white text-decoration-none me-2 bukti-preview-trigger" 
+                           data-type="pdf" data-src="{{ $path }}">PDF</a>
                     @else
-                      <a href="javascript:void(0)" class="text-decoration-none bukti-preview-trigger" data-type="other"
-                        data-src="{{ $path }}">Lihat</a>
+                        <a href="javascript:void(0)" class="text-decoration-none bukti-preview-trigger" 
+                           data-type="other" data-src="{{ $path }}">Lihat</a>
                     @endif
-                  @else
+                @else
                     <span class="text-muted">—</span>
-                  @endif
+                @endif
 
-                  {{-- Tombol Upload Bukti per baris --}}
-                  <div class="mt-1">
+                <div class="mt-1">
                     <button class="btn btn-sm btn-outline-secondary upload-bukti-btn" type="button"
-                      data-nim="{{ $v->nim_murid_baru ?? '' }}"
-                      data-voucher="{{ $v->no_voucher ?? '' }}">
-                      <i class="bi bi-upload"></i> Upload Bukti
+                            data-nim="{{ $v->nim_murid_baru ?? '' }}"
+                            data-voucher="{{ $v->no_voucher ?? '' }}">
+                        <i class="bi bi-upload"></i> Upload Bukti
                     </button>
-                  </div>
-                </td>
+                </div>
+            </td>
 
-                <td>
-    <a href="{{ route('voucher.print', $v->id) }}" 
-       target="_blank" 
-       class="btn btn-success btn-sm mt-1">
-        Cetak Voucher
-    </a>
+            <!-- 22. ACTION -->
+            <td>
+                <a href="{{ route('voucher.print', $v->id) }}" target="_blank" class="btn btn-success btn-sm mt-1">
+                    Cetak Voucher
+                </a>
+                <a href="{{ route('voucher.edit', $v->id) }}" class="btn btn-warning btn-sm mt-1">Edit</a>
+                <a href="{{ route('voucher.histori', $v->id) }}" class="btn btn-info btn-sm mt-1">Histori</a>
 
-    <!-- Tombol lain -->
-    <a href="{{ route('voucher.edit', $v->id) }}" class="btn btn-warning btn-sm mt-1">Edit</a>
-    <a href="{{ route('voucher.histori', $v->id) }}" class="btn btn-info btn-sm mt-1">Histori</a>
+                @if (auth()->user()?->role === 'admin')
+                    <form action="{{ route('voucher.destroy', $v->id) }}" method="POST" style="display:inline;" class="mt-1">
+                        @csrf
+                        @method('DELETE')
+                        <button class="btn btn-danger btn-sm" onclick="return confirm('Yakin ingin menghapus?')">Hapus</button>
+                    </form>
+                @endif
+            </td>
+        </tr>
+    @endforeach
 
-    @if (auth()->user()?->role === 'admin')
-        <form action="{{ route('voucher.destroy', $v->id) }}" method="POST" style="display:inline;" class="mt-1">
-            @csrf
-            @method('DELETE')
-            <button class="btn btn-danger btn-sm" onclick="return confirm('Yakin ingin menghapus?')">Hapus</button>
-        </form>
+    @if($vouchers->isEmpty())
+        <tr>
+            <td colspan="22" class="text-center text-muted py-3">Belum ada data voucher.</td>
+        </tr>
     @endif
-</td>
-              </tr>
-            @endforeach
-
-            @if($vouchers->isEmpty())
-              <tr>
-                <td colspan="19" class="text-center text-muted py-3">Belum ada data voucher.</td>
-              </tr>
-            @endif
-          </tbody>
+</tbody>
         </table>
       </div>
     </div>
@@ -571,8 +620,29 @@
       display: inline-block;
     }
   </style>
+ @push('scripts')
+    <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+    <script>
+        $(document).ready(function() {
+            const form = $('#namaMuridSelect').closest('form');
 
-  <script>
+            $('#namaMuridSelect').select2({
+                placeholder: "Ketik nama atau NIM murid...",
+                allowClear: true,
+                width: '100%',
+                minimumInputLength: 0,
+                dropdownParent: $('#namaMuridSelect').parent()
+            }).on('change', function() {
+                form.submit();   // ← Langsung submit saat pilih
+            });
+
+            // Search input juga submit saat Enter
+            $('input[name="search"]').on('keypress', function(e) {
+                if (e.which === 13) {
+                    form.submit();
+                }
+            });
+        });
     document.addEventListener('DOMContentLoaded', function () {
       const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
 
@@ -840,5 +910,5 @@ if (uploadForm) {
       }
     });
   </script>
-
+@endpush
 @endsection

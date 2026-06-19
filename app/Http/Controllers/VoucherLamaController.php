@@ -91,9 +91,7 @@ class VoucherLamaController extends Controller
     }
 
     // ---------------------------
-    // Tampilkan semua data
-    // ---------------------------
-    public function index(Request $request)
+public function index(Request $request)
 {
     $user = auth()->user();
 
@@ -110,12 +108,39 @@ class VoucherLamaController extends Controller
     }
 
     // =========================
+    // FILTER SEARCH GLOBAL
+    // =========================
+    if ($request->filled('search')) {
+        $search = trim($request->search);
+        $query->where(function ($q) use ($search) {
+            $q->where('no_voucher', 'like', "%{$search}%")
+              ->orWhere('voucher', 'like', "%{$search}%")
+              ->orWhere('nama_murid', 'like', "%{$search}%")
+              ->orWhere('nama_murid_baru', 'like', "%{$search}%")
+              ->orWhere('nim', 'like', "%{$search}%")
+              ->orWhere('nim_murid_baru', 'like', "%{$search}%")
+              ->orWhere('orangtua', 'like', "%{$search}%")
+              ->orWhere('orangtua_murid_baru', 'like', "%{$search}%");
+        });
+    }
+
+    // =========================
     // FILTER NAMA MURID
     // =========================
     if ($request->filled('nama_murid')) {
-        $query->where(function ($q) use ($request) {
-            $q->where('nama_murid', $request->nama_murid)
-              ->orWhere('nama_murid_baru', $request->nama_murid);
+        $namaInput = $request->nama_murid;
+        if (str_contains($namaInput, '|')) {
+            $parts = array_map('trim', explode('|', $namaInput));
+            $nama = end($parts);
+        } else {
+            $nama = $namaInput;
+        }
+
+        $query->where(function ($q) use ($nama) {
+            $q->where('nama_murid', 'like', "%{$nama}%")
+              ->orWhere('nama_murid_baru', 'like', "%{$nama}%")
+              ->orWhere('nim', 'like', "%{$nama}%")
+              ->orWhere('nim_murid_baru', 'like', "%{$nama}%");
         });
     }
 
@@ -125,7 +150,6 @@ class VoucherLamaController extends Controller
     if ($request->filled('tanggal_dari')) {
         $query->whereDate('tanggal', '>=', $request->tanggal_dari);
     }
-
     if ($request->filled('tanggal_sampai')) {
         $query->whereDate('tanggal', '<=', $request->tanggal_sampai);
     }
@@ -138,33 +162,42 @@ class VoucherLamaController extends Controller
     }
 
     // =========================
-    // GET DATA
+    // PAGINATION (Per Page)
     // =========================
-    $vouchers = $query->latest()->get();
+    $perPage = $request->get('per_page', 10); // default 10
+    if (!in_array($perPage, [5, 10, 20, 50, 100])) {
+        $perPage = 10;
+    }
 
     // =========================
-    // DATA FILTER DROPDOWN
+    // GET DATA DENGAN PAGINATION
     // =========================
-    $namaMurid = VoucherLama::selectRaw("
+    $vouchers = $query->latest()->paginate($perPage);
+
+    // =========================
+    // DATA DROPDOWN FILTER
+    // =========================
+    $namaMuridQuery = VoucherLama::selectRaw("
             CONCAT(
-                COALESCE(nim, '-'), ' | ', COALESCE(nama_murid, '-')
+                COALESCE(nim, '-'), 
+                ' | ', 
+                COALESCE(nama_murid, COALESCE(nama_murid_baru, '-'))
             ) as display
-        ")
-        ->distinct()
-        ->pluck('display');
+        ")->distinct();
 
-    $listBimbaUnit = VoucherLama::select('bimba_unit')
-        ->distinct()
-        ->pluck('bimba_unit');
+    if (!$user->isAdminUser()) {
+        $namaMuridQuery->where('bimba_unit', $user->bimba_unit);
+    }
+    $namaMurid = $namaMuridQuery->pluck('display');
 
-    // =========================
-    // SPIN RESULT (JANGAN ERROR)
-    // =========================
+    $listBimbaUnitQuery = VoucherLama::select('bimba_unit')->distinct();
+    if (!$user->isAdminUser()) {
+        $listBimbaUnitQuery->where('bimba_unit', $user->bimba_unit);
+    }
+    $listBimbaUnit = $listBimbaUnitQuery->pluck('bimba_unit');
+
     $spinResult = session('spinResult', null);
 
-    // =========================
-    // RETURN WAJIB ADA $vouchers
-    // =========================
     return view('voucher.index', compact(
         'vouchers',
         'namaMurid',
