@@ -309,8 +309,6 @@
         return ar.localeCompare(br);
     });
 
-    const isAdmin = {{ Auth::check() && in_array(Auth::user()->role ?? '', ['admin', 'superadmin']) ? 'true' : 'false' }};
-
     for (const it of list) {
         const rowHash   = it.row_hash || it.rowHash || '';
         const ref       = (it.referrer_name || it.name || '').toString().trim();
@@ -339,32 +337,20 @@
                     <label class="form-check-label" for="${id}" style="cursor:pointer;">
                         <div class="referrer fw-bold text-primary">${escapeHtml(ref.toUpperCase())} (Humas)</div>`;
         
-        // Tampilkan murid hanya jika berbeda
-        if (brought && brought.toLowerCase() !== ref.toLowerCase()) {
+        if (brought) {
             html += `<div class="brought fw-bold text-success">${escapeHtml(brought)}${isNew ? ' (Murid Baru)' : ''}</div>`;
         }
 
         html += `</label></div>
 
-                <div style="display:flex; gap:8px; align-items:center;">
-                    <button onclick="copyParentSpinLink('${escapeHtml(rowHash)}', '${escapeHtml(brought)}', '${escapeHtml(ref)}')" 
-                            class="btn btn-sm btn-outline-success" 
-                            title="Salin link spin untuk orang tua"
-                            style="font-size:0.8rem; padding:4px 8px;">
-                        📋 Link
-                    </button>`;
-
-        if (isAdmin) {
-            html += `
-                    <button onclick="deleteParticipant('${escapeHtml(rowHash)}', '${escapeHtml(ref)}')" 
-                            class="btn btn-sm btn-outline-danger" 
-                            title="Hapus peserta ini"
-                            style="font-size:0.8rem; padding:4px 8px;">
-                        🗑
-                    </button>`;
-        }
-
-        html += `</div></div>`;
+                <!-- Tombol Link -->
+                <button onclick="copyParentSpinLink('${escapeHtml(rowHash)}', '${escapeHtml(brought)}', '${escapeHtml(ref)}')" 
+                        class="btn btn-sm btn-outline-success" 
+                        title="Salin link spin untuk orang tua"
+                        style="font-size:0.8rem; padding:4px 8px;">
+                    📋 Link Orang Tua
+                </button>
+            </div>`;
 
         div.innerHTML = html;
         nameListEl.appendChild(div);
@@ -457,142 +443,137 @@
          SPIN logic
          ------------------------- */
       async function spin() {
-    if (spinning) return;
-    const checked = document.querySelector('input[name="selected_name"]:checked');
-    if (!checked) { 
-        winnerEl.textContent = 'Pilih satu nama dulu sebelum memutar.'; 
-        return; 
-    }
+        if (spinning) return;
+        const checked = document.querySelector('input[name="selected_name"]:checked');
+        if (!checked) { winnerEl.textContent = 'Pilih satu nama dulu sebelum memutar.'; return; }
 
-    spinning = true; 
-    winnerEl.textContent = 'Sedang memutar...';
+        spinning = true; winnerEl.textContent = 'Sedang memutar...';
+        if (audioCtx && audioCtx.state === 'suspended') { try { await audioCtx.resume(); } catch (e) { /* ignore */ } }
 
-    if (audioCtx && audioCtx.state === 'suspended') { 
-        try { await audioCtx.resume(); } catch (e) { /* ignore */ } 
-    }
+        const payload = {
+          row_hash: checked.dataset.row_hash || null,
+          referrer: checked.dataset.ref || null,
+          brought: checked.dataset.brought || null,
+          name: checked.value || null
+        };
 
-    const payload = {
-        row_hash: checked.dataset.row_hash || null,
-        referrer: checked.dataset.ref || null,
-        brought: checked.dataset.brought || null,
-    };
-
-    let data;
-    try {
-        const res = await fetch(SPIN_URL, {
+        let data;
+        try {
+          const res = await fetch(SPIN_URL, {
             method: 'POST',
             credentials: 'same-origin',
             headers: {
-                'Content-Type': 'application/json',
-                'X-CSRF-TOKEN': CSRF,
-                'X-Requested-With': 'XMLHttpRequest'
+              'Content-Type': 'application/json',
+              'X-CSRF-TOKEN': CSRF,
+              'X-Requested-With': 'XMLHttpRequest'
             },
             body: JSON.stringify(payload)
-        });
+          });
 
-        const text = await res.text();
+          const text = await res.text();
 
-        if (!res.ok) {
+          if (!res.ok) {
             if (res.status === 419) {
-                winnerEl.textContent = 'Spin gagal: sesi kadaluarsa. Silakan refresh halaman.';
-            } else {
-                try {
-                    const errJson = JSON.parse(text);
-                    winnerEl.textContent = errJson.error || errJson.message || 'Spin gagal';
-                } catch (e) {
-                    winnerEl.textContent = 'Spin gagal (HTTP ' + res.status + ')';
-                }
+              winnerEl.textContent = 'Spin gagal: sesi kadaluarsa atau CSRF token mismatch. Silakan muat ulang halaman dan coba lagi.';
+              spinning = false;
+              return;
+            }
+            try {
+              const errJson = JSON.parse(text);
+              winnerEl.textContent = errJson.error || errJson.message || ('Spin gagal (HTTP ' + res.status + ')');
+            } catch (e) {
+              winnerEl.textContent = 'Spin gagal (HTTP ' + res.status + ')';
             }
             spinning = false;
             return;
+          }
+
+          try { data = JSON.parse(text); } catch (e) { data = {}; }
+
+        } catch (err) {
+          console.error('spin request err', err); winnerEl.textContent = 'Gagal memanggil backend.'; spinning = false; return;
         }
 
-        data = JSON.parse(text);
+        const sectorAngle = 360 / vouchers.length;
+        let targetSector = -1;
+        if (typeof data.voucher_index === 'number') { targetSector = parseInt(data.voucher_index, 10); if (isNaN(targetSector) || targetSector < 0 || targetSector >= vouchers.length) targetSector = -1; }
+        if (targetSector === -1 && data.voucher) { const voucherLower = (data.voucher || '').toString().toLowerCase().trim(); targetSector = vouchers.findIndex(v => (v || '').toLowerCase().trim() === voucherLower); }
+        if (targetSector === -1) targetSector = Math.floor(Math.random() * vouchers.length);
 
-    } catch (err) {
-        console.error('spin request err', err);
-        winnerEl.textContent = 'Gagal memanggil backend.';
-        spinning = false;
-        return;
-    }
+        const sectorCenterDeg = targetSector * sectorAngle + (sectorAngle / 2);
+        const pointerAngle = 90;
+        const finalNorm = ((pointerAngle - sectorCenterDeg) % 360 + 360) % 360;
+        const targetOffset = ((-finalNorm) % 360 + 360) % 360;
+        const minRounds = 4;
+        const extraFull = (Math.floor(Math.random() * 3) * 360);
+        const spinAngle = (minRounds * 360) + extraFull + targetOffset;
 
-    // === ANIMASI WHEEL ===
-    const sectorAngle = 360 / vouchers.length;
-    let targetSector = -1;
-    if (typeof data.voucher_index === 'number') {
-        targetSector = parseInt(data.voucher_index, 10);
-    }
-    if (targetSector === -1 && data.voucher) {
-        const voucherLower = (data.voucher || '').toString().toLowerCase().trim();
-        targetSector = vouchers.findIndex(v => (v || '').toLowerCase().trim() === voucherLower);
-    }
-    if (targetSector === -1) targetSector = Math.floor(Math.random() * vouchers.length);
+        // animate
+        const duration = 4200 + Math.random() * 1000;
+        const start = performance.now();
+        let lastTickSector = -1;
 
-    // ... (bagian perhitungan spinAngle tetap sama) ...
-    const sectorCenterDeg = targetSector * sectorAngle + (sectorAngle / 2);
-    const pointerAngle = 90;
-    const finalNorm = ((pointerAngle - sectorCenterDeg) % 360 + 360) % 360;
-    const targetOffset = ((-finalNorm) % 360 + 360) % 360;
-    const minRounds = 4;
-    const extraFull = (Math.floor(Math.random() * 3) * 360);
-    const spinAngle = (minRounds * 360) + extraFull + targetOffset;
+        function animate(now) {
+          const t = Math.min((now - start) / duration, 1);
+          const eased = easeOut(t);
+          rotation = spinAngle * eased;
+          if (canvas) canvas.style.transform = `rotate(${-rotation}deg)`;
 
-    const duration = 4200 + Math.random() * 1000;
-    const start = performance.now();
+          const normalized = norm360(-rotation);
+          const relative = norm360(pointerAngle - normalized);
+          const currentSector = Math.floor(relative / sectorAngle) % vouchers.length;
+          if (currentSector !== lastTickSector) {
+            lastTickSector = currentSector;
+            tickSound(0.04, 1200 - (currentSector % 6) * 60, 0.01);
+          }
 
-    function animate(now) {
-        const t = Math.min((now - start) / duration, 1);
-        const eased = easeOut(t);
-        rotation = spinAngle * eased;
-        if (canvas) canvas.style.transform = `rotate(${-rotation}deg)`;
-
-        if (t < 1) {
-            requestAnimationFrame(animate);
-        } else {
-            // === ANIMASI SELESAI ===
+          if (t < 1) requestAnimationFrame(animate);
+          else {
             spinning = false;
             const selectedVoucher = vouchers[targetSector];
 
-            // Tampilkan pemenang
-            const refName = (data.referrer || data.name || payload.referrer || '').toString().trim();
-            const broughtName = (data.brought || data.new_student?.nama || payload.brought || '').toString().trim();
-            const isNew = !!(data.new_student || checked.dataset.is_new === '1');
+            // display winner — use format requested
+            const refName = (data.referrer || data.name || payload.referrer || payload.name || checked.value || '').toString().trim();
+            const broughtName = (data.brought || data.new_student?.nama || payload.brought || checked.dataset.brought || '').toString().trim();
+            const isNew = !!(data.new_student || checked.dataset.is_new === '1' || checked.dataset.is_new === 'true' || checked.dataset.is_new === true);
 
-            let winnerHtml = `<div style="font-size:1.05rem;"><strong>${escapeHtml(refName.toUpperCase())} (Humas)</strong></div>`;
+            let winnerHtml = `<div style="font-size:1.05rem;"><strong>${escapeHtml((refName || '').toUpperCase())} (Murid Humas)</strong></div>`;
             if (broughtName) {
-                winnerHtml += `<div style="font-size:0.95rem; margin-top:4px;">${escapeHtml(broughtName)}${isNew ? ' (Murid Baru)' : ''}</div>`;
+              winnerHtml += `<div style="font-size:0.95rem; margin-top:4px;">${escapeHtml(broughtName)}${isNew ? '(murid Baru)' : ''} (Murid Baru)</div>`;
             }
             winnerHtml += `<div style="margin-top:8px;">mendapatkan <strong>${escapeHtml(selectedVoucher)}</strong> 🎁</div>`;
 
-            winnerEl.innerHTML = `🎉 ${winnerHtml}`;
-            burstConfetti();
+            if (winnerEl) winnerEl.innerHTML = `🎉 ${winnerHtml}`;
+            burstConfetti(); tickSound(0.14, 880, 0.06);
 
-            if (stopLine) {
-                stopLine.classList.remove('flash');
-                void stopLine.offsetWidth;
-                stopLine.classList.add('flash');
-            }
+            if (stopLine) { stopLine.classList.remove('flash'); void stopLine.offsetWidth; stopLine.classList.add('flash'); }
 
-            // === HAPUS NAMA YANG BARU MENANG ===
+            // Remove winner from UI and local list
             if (payload.row_hash) {
-                const el = document.querySelector(`input[data-row_hash="${payload.row_hash}"]`);
-                if (el) el.closest('.form-check')?.remove();
-
-                availableNames = availableNames.filter(x => 
-                    (x.row_hash || x.rowHash || '') !== payload.row_hash
-                );
+              const el = document.querySelector(`input[name="selected_name"][data-row_hash="${payload.row_hash}"]`);
+              if (el) el.closest('.form-check')?.remove();
+              availableNames = availableNames.filter(x => (x.row_hash || x.rowHash || '') !== payload.row_hash);
+            } else {
+              const nameToRemove = (data.name || '').trim();
+              const el = [...document.querySelectorAll('.name-checkbox')].find(i => (i.value || '').trim() === nameToRemove);
+              if (el) el.closest('.form-check')?.remove();
+              availableNames = availableNames.filter(x => ((x.name || x.referrer_name || '') || '').trim() !== nameToRemove);
             }
 
             disableSpin();
             loadRecentHistory(6);
 
-            // Optional: refresh full list
-            // loadNames();
+            // safety-check (visual vs expected)
+            const finalNormNow = norm360(-rotation);
+            const relaNow = norm360(pointerAngle - finalNormNow);
+            const sectorNow = Math.floor(relaNow / sectorAngle) % vouchers.length;
+            console.log({ finalNormNow, relaNow, sectorNow, expected: targetSector });
+            if (sectorNow !== targetSector) console.error('Mismatch: visual landed on sector', sectorNow, 'but expected', targetSector);
+          }
         }
-    }
 
-    requestAnimationFrame(animate);
-}
+        requestAnimationFrame(animate);
+      }
 
       // init
       drawWheel(); reset(); loadNames(); loadRecentHistory(6);
@@ -613,20 +594,22 @@
     async function copyParentSpinLink(rowHash, childName, referrerName) {
     try {
         const params = new URLSearchParams();
-
         if (rowHash) {
             params.append('row_hash', rowHash);
         } else if (childName) {
             params.append('child_name', childName);
         }
 
-        const baseUrl = @json(route('wheels.parent.link'));
+        const baseUrl = `{{ route("wheels.parent.link") }}`;
+        if (!baseUrl || baseUrl.includes('{{')) {
+            throw new Error('Route belum ter-render');
+        }
 
         const res = await fetch(`${baseUrl}?${params.toString()}`, {
             method: 'GET',
             headers: {
                 'X-Requested-With': 'XMLHttpRequest',
-                'Accept': 'application/json'
+                'Accept': 'application/json',
             },
             credentials: 'same-origin'
         });
@@ -637,15 +620,35 @@
             throw new Error(json.error || 'Gagal membuat link');
         }
 
-        await navigator.clipboard.writeText(json.url);
+        // === Perbaikan Clipboard ===
+        const textToCopy = json.url;
 
-        showSuccessToast(
-            `✅ Link untuk ${referrerName || childName} berhasil disalin!`
-        );
+        if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(textToCopy);
+            showSuccessToast(`✅ Link untuk ${referrerName || childName} berhasil disalin!`);
+        } else {
+            // Fallback untuk HTTP / localhost
+            const textarea = document.createElement('textarea');
+            textarea.value = textToCopy;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+            
+            showSuccessToast(`✅ Link untuk ${referrerName || childName} berhasil disalin! (Fallback)`);
+        }
 
     } catch (err) {
-        console.error(err);
-        showErrorToast('❌ Gagal membuat link. Coba refresh halaman.');
+        console.error('copyParentSpinLink failed:', err);
+        
+        let message = '❌ Gagal membuat link. Coba refresh halaman.';
+        if (err.message.includes('Route')) {
+            message = '❌ Route copy link belum dikonfigurasi dengan benar.';
+        }
+        
+        showErrorToast(message);
     }
 }
 
@@ -658,45 +661,6 @@ function showSuccessToast(msg) {
 function showErrorToast(msg) {
     alert(msg);
     console.error(msg);
-}
-
-// Hapus 1 peserta (hanya admin)
-async function deleteParticipant(rowHash, name) {
-
-    const csrfToken = document.querySelector(
-        'meta[name="csrf-token"]'
-    )?.getAttribute('content');
-
-    if (!confirm(`Yakin ingin menghapus "${name}" dari daftar undian?`)) {
-        return;
-    }
-
-    try {
-        const res = await fetch('{{ route("wheels.delete") }}', {
-            method: 'DELETE',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRF-TOKEN': csrfToken,
-                'X-Requested-With': 'XMLHttpRequest'
-            },
-            body: JSON.stringify({
-                row_hash: rowHash
-            })
-        });
-
-        const json = await res.json();
-
-        if (json.success) {
-            alert(`✅ ${name} berhasil dihapus.`);
-            location.reload();
-        } else {
-            alert(json.message || json.error || 'Gagal menghapus');
-        }
-
-    } catch (err) {
-        console.error(err);
-        alert('Terjadi kesalahan saat menghapus.');
-    }
 }
   </script>
 @endpush

@@ -323,40 +323,111 @@ class WheelController extends Controller
     $humasCol = 'informasi_humas_nama';
     $studentNameCol = 'nama';
 
+    $user = Auth::user();
+    $isAdmin = $user && (
+        ($user->is_admin ?? false) || 
+        in_array($user->role ?? '', ['admin', 'superadmin', 'keuangan'])
+    );
+
+    $userUnit     = trim($user->bimba_unit ?? '');
+    $userNoCabang = trim($user->no_cabang ?? '');
+
     // ==================== STUDENTS ====================
-    $fromStudents = DB::table('students')
+    $queryStudents = DB::table('students')
         ->join('registrations', function ($join) {
             $join->on('registrations.student_id', '=', 'students.id')
                 ->where('registrations.status', '=', 'accepted');
         })
         ->whereNotNull($humasCol)
-        ->whereRaw("TRIM({$humasCol}) <> ''")
-        ->select([
-            'students.id as student_id',
-            'students.nim as nim_murid',
-            DB::raw("TRIM({$humasCol}) as humas_name_raw"),
-            DB::raw("TRIM({$studentNameCol}) as student_name"),
-            'registrations.bimba_unit',
-            'registrations.no_cabang',
-            DB::raw("'student' as source")
-        ])
-        ->get();
+        ->whereRaw("TRIM({$humasCol}) <> ''");
+
+    // === FILTER UNIT (Hanya untuk non-admin) ===
+    if (!$isAdmin && ($userUnit || $userNoCabang)) {
+        $queryStudents->where(function ($q) use ($userUnit, $userNoCabang) {
+            // Filter berdasarkan nama unit
+            if ($userUnit) {
+                $q->where('students.bimba_unit', 'LIKE', "%{$userUnit}%")
+                  ->orWhere('registrations.bimba_unit', 'LIKE', "%{$userUnit}%");
+            }
+
+            // Filter berdasarkan no_cabang
+            if ($userNoCabang) {
+                $q->orWhere('students.no_cabang', $userNoCabang)
+                  ->orWhere('registrations.no_cabang', $userNoCabang);
+            }
+
+            // Mapping unit khusus
+            $allowedNoCabang = [];
+            $lowerUnit = strtolower($userUnit);
+
+            if (str_contains($lowerUnit, 'sapta taruna')) {
+                $allowedNoCabang[] = '01045';
+            } elseif (str_contains($lowerUnit, 'griya pesona madani')) {
+                $allowedNoCabang[] = '05141';
+            } elseif (str_contains($lowerUnit, 'villa bekasi indah')) {
+                $allowedNoCabang[] = '00340';
+            }
+
+            if (!empty($allowedNoCabang)) {
+                $q->orWhereIn('students.no_cabang', $allowedNoCabang)
+                  ->orWhereIn('registrations.no_cabang', $allowedNoCabang);
+            }
+        });
+    }
+
+    $fromStudents = $queryStudents->select([
+        'students.id as student_id',
+        'students.nim as nim_murid',
+        DB::raw("TRIM({$humasCol}) as humas_name_raw"),
+        DB::raw("TRIM({$studentNameCol}) as student_name"),
+        'registrations.bimba_unit',
+        'registrations.no_cabang',
+        DB::raw("'student' as source")
+    ])->get();
 
     // ==================== BUKU INDUK ====================
-    $fromBukuInduk = DB::table('buku_induk')
+    $queryBuku = DB::table('buku_induk')
         ->where('info', 'humas')
         ->whereNotNull('nama_humas')
-        ->whereRaw("TRIM(nama_humas) <> ''")
-        ->select([
-            DB::raw('NULL as student_id'),
-            'nim as nim_murid',
-            DB::raw('TRIM(nama_humas) as humas_name_raw'),
-            DB::raw('TRIM(nama) as student_name'),
-            'bimba_unit',
-            'no_cabang',
-            DB::raw("'buku_induk' as source")
-        ])
-        ->get();
+        ->whereRaw("TRIM(nama_humas) <> ''");
+
+    // === FILTER UNIT (Hanya untuk non-admin) ===
+    if (!$isAdmin && ($userUnit || $userNoCabang)) {
+        $queryBuku->where(function ($q) use ($userUnit, $userNoCabang) {
+            if ($userUnit) {
+                $q->where('bimba_unit', 'LIKE', "%{$userUnit}%");
+            }
+
+            if ($userNoCabang) {
+                $q->orWhere('no_cabang', $userNoCabang);
+            }
+
+            $allowedNoCabang = [];
+            $lowerUnit = strtolower($userUnit);
+
+            if (str_contains($lowerUnit, 'sapta taruna')) {
+                $allowedNoCabang[] = '01045';
+            } elseif (str_contains($lowerUnit, 'griya pesona madani')) {
+                $allowedNoCabang[] = '05141';
+            } elseif (str_contains($lowerUnit, 'villa bekasi indah')) {
+                $allowedNoCabang[] = '00340';
+            }
+
+            if (!empty($allowedNoCabang)) {
+                $q->orWhereIn('no_cabang', $allowedNoCabang);
+            }
+        });
+    }
+
+    $fromBukuInduk = $queryBuku->select([
+        DB::raw('NULL as student_id'),
+        'nim as nim_murid',
+        DB::raw('TRIM(nama_humas) as humas_name_raw'),
+        DB::raw('TRIM(nama) as student_name'),
+        'bimba_unit',
+        'no_cabang',
+        DB::raw("'buku_induk' as source")
+    ])->get();
 
     $rows = $fromStudents->merge($fromBukuInduk);
 
@@ -369,11 +440,7 @@ class WheelController extends Controller
     $winnerNames = WheelWinner::pluck('name')
         ->filter()
         ->map(function ($n) {
-            return preg_replace(
-                '/\s+/',
-                ' ',
-                mb_strtolower(trim((string) $n))
-            );
+            return preg_replace('/\s+/', ' ', mb_strtolower(trim((string) $n)));
         })
         ->toArray();
 
@@ -381,7 +448,6 @@ class WheelController extends Controller
     $out = [];
 
     foreach ($rows as $r) {
-
         $referrerRaw = trim((string) ($r->humas_name_raw ?? ''));
         $broughtRaw  = trim((string) ($r->student_name ?? ''));
 
@@ -389,32 +455,17 @@ class WheelController extends Controller
             continue;
         }
 
-        // ====================
-        // DEDUP STUDENT + BUKU INDUK
-        // ====================
-        $uniqueKey =
-            mb_strtolower($referrerRaw)
-            . '|'
-            . mb_strtolower($broughtRaw);
-
+        // Dedup
+        $uniqueKey = mb_strtolower($referrerRaw) . '|' . mb_strtolower($broughtRaw);
         if (isset($seen[$uniqueKey])) {
             continue;
         }
-
         $seen[$uniqueKey] = true;
 
-        // ====================
-        // GENERATE HASH
-        // ====================
-        if (
-            $r->source === 'student'
-            && !empty($r->student_id)
-        ) {
-
+        // Generate row_hash
+        if ($r->source === 'student' && !empty($r->student_id)) {
             $rowHash = md5('stu:' . $r->student_id);
-
         } else {
-
             $rowHash = md5(json_encode([
                 $r->nim_murid,
                 $r->student_name,
@@ -423,52 +474,19 @@ class WheelController extends Controller
             ], JSON_UNESCAPED_UNICODE));
         }
 
-        // ====================
-        // DISPLAY NAME
-        // ====================
+        // Display name
         $displayName = strtoupper(trim($referrerRaw));
-
         if ($broughtRaw !== '') {
             $displayName .= ' (' . trim($broughtRaw) . ')';
         }
 
-        $normalizedName = preg_replace(
-            '/\s+/',
-            ' ',
-            mb_strtolower(trim($displayName))
-        );
+        $normalizedName = preg_replace('/\s+/', ' ', mb_strtolower(trim($displayName)));
 
-        // ====================
-        // SUDAH MENANG BERDASARKAN HASH
-        // ====================
-        if (in_array($rowHash, $winnerHashes, true)) {
-            continue;
-        }
-
-        // ====================
-        // SUDAH MENANG BERDASARKAN NAMA
-        // ====================
-        if (in_array($normalizedName, $winnerNames, true)) {
-            continue;
-        }
-
-        // ====================
-        // DOUBLE CHECK DATABASE
-        // ====================
-        if (
-            WheelWinner::where('row_hash', $rowHash)->exists()
-        ) {
-            continue;
-        }
-
-        if (
-            WheelWinner::whereRaw(
-                'LOWER(TRIM(name)) = ?',
-                [$normalizedName]
-            )->exists()
-        ) {
-            continue;
-        }
+        // Skip jika sudah menang
+        if (in_array($rowHash, $winnerHashes, true)) continue;
+        if (in_array($normalizedName, $winnerNames, true)) continue;
+        if (WheelWinner::where('row_hash', $rowHash)->exists()) continue;
+        if (WheelWinner::whereRaw('LOWER(TRIM(name)) = ?', [$normalizedName])->exists()) continue;
 
         $out[] = [
             'student_id'    => $r->student_id,
@@ -484,10 +502,7 @@ class WheelController extends Controller
     }
 
     usort($out, function ($a, $b) {
-        return strcasecmp(
-            $a['referrer_name'],
-            $b['referrer_name']
-        );
+        return strcasecmp($a['referrer_name'], $b['referrer_name']);
     });
 
     return $out;
@@ -705,6 +720,9 @@ protected function createVouchersAndFlash(\App\Models\WheelWinner $winner): bool
 /**
  * Generate Signed URL untuk Orang Tua
  */
+/**
+ * Generate Signed URL untuk Orang Tua
+ */
 public function getParentSpinLink(Request $request)
 {
     $row_hash = $request->get('row_hash');
@@ -718,49 +736,50 @@ public function getParentSpinLink(Request $request)
     }
 
     try {
-        $params = [];
-        if ($row_hash) {
-            $params['row_hash'] = $row_hash;
-        } else {
-            // Fallback logic jika pakai child_name
-            $available = $this->fetchAvailableFromStudents();
-            $found = collect($available)->first(fn($x) => 
-                strcasecmp(trim($x['brought_name'] ?? ''), trim($child_name)) === 0 ||
-                strcasecmp(trim($x['referrer_name'] ?? ''), trim($child_name)) === 0
-            );
+        $available = $this->fetchAvailableFromStudents();
+        $found = null;
 
-            if ($found && !empty($found['row_hash'])) {
-                $params['row_hash'] = $found['row_hash'];
-            } else {
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Data tidak ditemukan'
-                ], 404);
-            }
+        if ($row_hash) {
+            $found = collect($available)->first(fn($x) => 
+                ($x['row_hash'] ?? '') === $row_hash
+            );
+        } elseif ($child_name) {
+            $child_name = trim($child_name);
+            $found = collect($available)->first(function ($x) use ($child_name) {
+                return strcasecmp(trim($x['brought_name'] ?? ''), $child_name) === 0 ||
+                       strcasecmp(trim($x['referrer_name'] ?? ''), $child_name) === 0;
+            });
+        }
+
+        if (!$found || empty($found['row_hash'])) {
+            return response()->json([
+                'success' => false,
+                'error' => 'Data tidak ditemukan atau sudah tidak tersedia'
+            ], 404);
         }
 
         $signedUrl = URL::temporarySignedRoute(
             'wheels.public.index',
             now()->addDays(7),
-            $params
+            ['row_hash' => $found['row_hash']]
         );
 
         return response()->json([
             'success' => true,
-            'url' => $signedUrl
+            'url'     => $signedUrl,
+            'name'    => $found['referrer_name'] ?? $found['name'] ?? ''
         ]);
 
     } catch (\Exception $e) {
         Log::error('getParentSpinLink Error', [
             'row_hash' => $row_hash,
             'child_name' => $child_name,
-            'error' => $e->getMessage(),
-            'trace' => $e->getTraceAsString()
+            'error' => $e->getMessage()
         ]);
 
         return response()->json([
             'success' => false,
-            'error' => 'Internal error: ' . $e->getMessage()
+            'error' => 'Terjadi kesalahan sistem. Silakan coba lagi.'
         ], 500);
     }
 }

@@ -48,7 +48,7 @@ class Student extends Model
 
         $user = Auth::user();
 
-        // Admin & Superadmin → boleh lihat semua data
+        // Admin, Superadmin, Keuangan → boleh lihat semua
         if ($user->is_admin ?? false || in_array($user->role ?? '', ['admin', 'superadmin', 'keuangan'])) {
             return;
         }
@@ -57,34 +57,38 @@ class Student extends Model
         $userNoCabang = trim($user->no_cabang ?? '');
 
         $builder->where(function ($q) use ($userUnit, $userNoCabang) {
-            // Filter utama berdasarkan unit user yang login
-            if ($userUnit) {
-                $q->where('bimba_unit', 'LIKE', "%{$userUnit}%");
-            }
-            if ($userNoCabang) {
+
+            $q->where(function ($qq) use ($userUnit) {
+                // Filter berdasarkan nama unit (lebih ketat)
+                if (!empty($userUnit)) {
+                    $qq->where('bimba_unit', 'LIKE', "%{$userUnit}%")
+                       ->orWhere('bimba_unit', 'LIKE', "%" . strtolower($userUnit) . "%");
+                }
+            });
+
+            // Filter berdasarkan no_cabang user
+            if (!empty($userNoCabang)) {
                 $q->orWhere('no_cabang', $userNoCabang);
             }
 
-            // === UNIT KHUSUS YANG DIIZINKAN (Hanya tambahkan unit yang memang boleh) ===
-            // JANGAN pakai terlalu longgar
-            $allowedUnits = [];
+            // === Mapping Unit yang Diizinkan (Hanya unit sendiri) ===
+            $allowedNoCabang = [];
 
-            if (str_contains(strtolower($userUnit), 'villa bekasi indah')) {
-                $allowedUnits[] = '00340';
-            }
-            if (str_contains(strtolower($userUnit), 'griya pesona madani')) {
-                $allowedUnits[] = '05141';
-            }
             if (str_contains(strtolower($userUnit), 'sapta taruna')) {
-                $allowedUnits[] = '01045';
+                $allowedNoCabang[] = '01045';
+            } elseif (str_contains(strtolower($userUnit), 'griya pesona madani')) {
+                $allowedNoCabang[] = '05141';
+            } elseif (str_contains(strtolower($userUnit), 'villa bekasi indah')) {
+                $allowedNoCabang[] = '00340';
             }
 
-            foreach ($allowedUnits as $code) {
-                $q->orWhere('no_cabang', $code);
+            if (!empty($allowedNoCabang)) {
+                $q->orWhereIn('no_cabang', $allowedNoCabang);
             }
         });
     });
 }
+
 
     /* =======================
        RELASI
