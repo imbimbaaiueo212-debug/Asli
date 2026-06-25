@@ -604,6 +604,32 @@
     </div>
   </div>
 
+  {{-- Pagination --}}
+@if($vouchers instanceof \Illuminate\Contracts\Pagination\Paginator ||
+    $vouchers instanceof \Illuminate\Contracts\Pagination\LengthAwarePaginator)
+
+<div class="card-footer bg-white">
+    <div class="d-flex justify-content-between align-items-center flex-wrap">
+
+        <div class="small text-muted">
+            Menampilkan
+            <strong>{{ $vouchers->firstItem() }}</strong>
+            -
+            <strong>{{ $vouchers->lastItem() }}</strong>
+            dari
+            <strong>{{ $vouchers->total() }}</strong>
+            data
+        </div>
+
+        <div>
+            {{ $vouchers->appends(request()->query())->links('pagination::bootstrap-5') }}
+        </div>
+
+    </div>
+</div>
+
+@endif
+
   <meta name="csrf-token" content="{{ csrf_token() }}">
 
   <style>

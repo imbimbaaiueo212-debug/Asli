@@ -9,6 +9,8 @@ use App\Imports\ProdukImport;
 use App\Exports\ProdukExport;
 use Maatwebsite\Excel\Facades\Excel;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Validator;
+
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Log;   // ← BENAR (huruf i besar)
 
@@ -233,14 +235,29 @@ public function store(Request $request)
     public function update(Request $request, $id)
 {
     $produk = Produk::findOrFail($id);
-    $user = Auth::user();
+    $user   = Auth::user();
+
+    // Tentukan unit yang dipakai untuk validasi
+    $bimbaUnit = $user->isAdminUser()
+        ? $request->bimba_unit
+        : $produk->bimba_unit;
 
     $rules = [
-        'kode'        => 'required|string|max:50|unique:produk,kode,' . $id,
+        'kode' => [
+            'required',
+            'string',
+            'max:50',
+            Rule::unique('produk', 'kode')
+                ->where(function ($query) use ($bimbaUnit) {
+                    return $query->where('bimba_unit', $bimbaUnit);
+                })
+                ->ignore($produk->id),
+        ],
+
+        'nama_produk' => 'required|string|max:255',
         'kategori'    => 'required|string|max:100',
         'jenis'       => 'required|string|max:100',
         'label'       => 'required|string|max:100',
-        'nama_produk' => 'required|string|max:255',
         'satuan'      => 'required|string|max:50',
         'berat'       => 'required|numeric|min:0',
         'harga'       => 'required|numeric|min:0',
@@ -250,31 +267,25 @@ public function store(Request $request)
     ];
 
     if ($user->isAdminUser()) {
-        $rules['bimba_unit'] = [
-            'required',
-            'string',
-            Rule::exists('units', 'biMBA_unit'),
-        ];
+        $rules['bimba_unit'] = 'required|string|exists:units,biMBA_unit';
     }
 
+    
     $validated = $request->validate($rules);
 
-    $bimbaUnit = $user->isAdminUser() 
-        ? $validated['bimba_unit'] 
-        : $produk->bimba_unit; // non-admin tetap pakai unit lama
-
+    // Ambil unit
     $unit = Unit::where('biMBA_unit', $bimbaUnit)->firstOrFail();
 
-$validated['unit_id']    = $unit->id;
-$validated['bimba_unit'] = $bimbaUnit;           // ← Kembali diisi
-$validated['no_cabang']  = $unit->no_cabang;     // ← Kembali diisi
+    $validated['unit_id']    = $unit->id;
+    $validated['bimba_unit'] = $bimbaUnit;
+    $validated['no_cabang']  = $unit->no_cabang;
 
-$produk->update($validated);
+    $produk->update($validated);
 
-    return redirect()->route('produk.index')
-                     ->with('success', 'Produk berhasil diperbarui!');
+    return redirect()
+        ->route('produk.index')
+        ->with('success', 'Produk berhasil diperbarui.');
 }
-
     /**
      * Remove the specified resource from storage.
      */

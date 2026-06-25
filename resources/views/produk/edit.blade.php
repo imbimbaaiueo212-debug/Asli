@@ -26,15 +26,15 @@
                                     <label class="form-label fw-bold">
                                         Unit biMBA <span class="text-danger">*</span>
                                     </label>
-                                    <select name="bimba_unit" class="form-select @error('bimba_unit') is-invalid @enderror" required>
-                                        <option value="">- Pilih Unit biMBA -</option>
-                                        @foreach($units as $unit)
-                                            <option value="{{ $unit->biMBA_unit }}"
-                                                {{ old('bimba_unit', $produk->unit->biMBA_unit ?? '') == $unit->biMBA_unit ? 'selected' : '' }}>
-                                                {{ $unit->biMBA_unit }} - {{ $unit->nama ?? $unit->label ?? 'Unit' }}
-                                            </option>
-                                        @endforeach
-                                    </select>
+                                    <select name="bimba_unit" class="form-control">
+@foreach($units as $unit)
+    <option
+        value="{{ $unit->biMBA_unit }}"
+        {{ old('bimba_unit', $produk->bimba_unit) == $unit->biMBA_unit ? 'selected' : '' }}>
+        {{ $unit->nama_unit }} ({{ $unit->no_cabang }})
+    </option>
+@endforeach
+</select>
                                     @error('bimba_unit')
                                         <div class="invalid-feedback">{{ $message }}</div>
                                     @enderror
