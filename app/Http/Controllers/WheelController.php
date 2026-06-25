@@ -628,41 +628,61 @@ class WheelController extends Controller
 /**
  * Helper: buat voucher rows di voucher_lama setelah spin
  */
+/**
+ * Buat voucher di tabel voucher_lama setelah spin berhasil
+ */
 protected function createVouchersAndFlash(\App\Models\WheelWinner $winner): bool
 {
     try {
-        $nilaiPerVoucher = 50000;
         $voucherAmount = (int) ($winner->voucher_amount ?? $this->parseRpToInt($winner->voucher ?? null) ?? 50000);
+        $nilaiPerVoucher = 50000;
         $voucherCount = max(1, intdiv($voucherAmount, $nilaiPerVoucher));
+
+        $rawName = trim((string) $winner->name);
+
+        // Parse nama: "HUMAS (MURID)"
+        preg_match('/^(.+?)\s*\((.+?)\)$/', $rawName, $matches);
+        
+        $referrerName = trim($matches[1] ?? $rawName);
+        $broughtName  = trim($matches[2] ?? '');
+
+        Log::info('createVouchersAndFlash - Parsing Nama', [
+            'raw_name' => $rawName,
+            'referrer' => $referrerName,
+            'brought'  => $broughtName,
+            'winner_id' => $winner->id
+        ]);
+
+        // Cari di Buku Induk
+        $humasRecord = \App\Models\BukuInduk::whereRaw('LOWER(TRIM(nama)) = ?', [mb_strtolower($referrerName)])
+            ->orWhereRaw('LOWER(TRIM(COALESCE(nama_humas, nama))) = ?', [mb_strtolower($referrerName)])
+            ->first();
+
+        $muridRecord = !empty($broughtName) 
+            ? \App\Models\BukuInduk::whereRaw('LOWER(TRIM(nama)) = ?', [mb_strtolower($broughtName)])->first()
+            : null;
+
+        $nimHumas     = $humasRecord?->nim ?? null;
+        $nimMuridBaru = $muridRecord?->nim ?? $winner->student_id ? \App\Models\Student::find($winner->student_id)?->nim : null;
+
+        // ================== BERSIHKAN BIMBA UNIT ==================
+        $bimbaUnitClean = $winner->bimba_unit ?? null;
+        if ($bimbaUnitClean) {
+            // Hapus format "05141 | " atau "kode | nama"
+            $bimbaUnitClean = preg_replace('/^\s*\d+\s*\|\s*/', '', trim($bimbaUnitClean));
+            $bimbaUnitClean = trim($bimbaUnitClean);
+        }
 
         $prefix = 'SPIN-' . date('Ymd');
         $voucherNumbers = $this->generateVoucherNumbers($voucherCount, $prefix);
 
-        $rawName = (string) ($winner->name ?? '');
-        $referrerName = trim(preg_replace('/\s*\(.*?\)$/', '', $rawName)); // Nama Humas → Chayra
-        $broughtName  = trim(preg_match('/\((.*?)\)/', $rawName, $m) ? $m[1] : ''); // Nama Murid Baru → Zahira
-
-        // === CARI DATA HUMAS (Chayra) ===
-        $humasRecord = \App\Models\BukuInduk::whereRaw('LOWER(TRIM(nama)) = ?', 
-            [mb_strtolower($referrerName)])
-            ->orWhereRaw('LOWER(TRIM(nama_humas)) = ?', [mb_strtolower($referrerName)])
-            ->first();
-
-        // === CARI DATA MURID BARU (Zahira) ===
-        $muridRecord = \App\Models\BukuInduk::whereRaw('LOWER(TRIM(nama)) = ?', 
-            [mb_strtolower($broughtName)])
-            ->first();
-
-        $nimHumas     = $humasRecord?->nim ?? null;
-        $nimMuridBaru = $muridRecord?->nim ?? $winner->student?->nim ?? null;
-
         $createdRows = [];
 
         DB::transaction(function () use (&$createdRows, $voucherNumbers, $nilaiPerVoucher, 
-            $humasRecord, $muridRecord, $referrerName, $broughtName, $nimHumas, $nimMuridBaru, $winner) {
+            $humasRecord, $muridRecord, $referrerName, $broughtName, $nimHumas, 
+            $nimMuridBaru, $winner, $bimbaUnitClean) {   // ← tambah $bimbaUnitClean
 
             foreach ($voucherNumbers as $vnum) {
-
                 $row = \App\Models\VoucherLama::create([
                     'voucher'                => $vnum,
                     'no_voucher'             => $vnum,
@@ -674,20 +694,20 @@ protected function createVouchersAndFlash(\App\Models\WheelWinner $winner): bool
                     'source'                 => 'spin',
                     'tipe_voucher'           => 'regular',
 
-                    // === DATA HUMAS ===
-                    'nim'                    => $nimHumas,                    // NIM Chayra (jika ada)
-                    'nama_murid'             => $referrerName,               // Chayra Nadhifa
+                    // Data Humas
+                    'nim'                    => $nimHumas,
+                    'nama_murid'             => $referrerName,
                     'orangtua'               => $humasRecord?->orangtua,
                     'telp_hp'                => $humasRecord?->no_telp_hp ?? $humasRecord?->no_telp,
 
-                    // === DATA MURID BARU ===
-                    'nim_murid_baru'         => $nimMuridBaru,               // NIM Zahira
-                    'nama_murid_baru'        => $broughtName,                // Zahira Ceisya Habibah
+                    // Data Murid Baru
+                    'nim_murid_baru'         => $nimMuridBaru,
+                    'nama_murid_baru'        => $broughtName,
                     'orangtua_murid_baru'    => $muridRecord?->orangtua ?? $humasRecord?->orangtua,
                     'telp_hp_murid_baru'     => $muridRecord?->no_telp_hp ?? $muridRecord?->no_telp ?? 
                                                 $humasRecord?->no_telp_hp,
 
-                    'bimba_unit'             => $winner->bimba_unit,
+                    'bimba_unit'             => $bimbaUnitClean,     // ← Pakai yang sudah dibersihkan
                     'no_cabang'              => $winner->no_cabang,
                 ]);
 
@@ -695,7 +715,7 @@ protected function createVouchersAndFlash(\App\Models\WheelWinner $winner): bool
             }
         });
 
-        // Flash Result
+        // Flash ke session
         Session::flash('spinResult', [
             'count' => count($createdRows),
             'nominal' => $voucherAmount,
@@ -704,15 +724,29 @@ protected function createVouchersAndFlash(\App\Models\WheelWinner $winner): bool
                 'voucher'         => $r->voucher,
                 'humas'           => $r->nama_murid,
                 'nim_humas'       => $r->nim,
-                'nim_murid_baru'  => $r->nim_murid_baru,
                 'nama_murid_baru' => $r->nama_murid_baru,
             ])->toArray(),
+        ]);
+
+        Log::info('createVouchersAndFlash SUCCESS', [
+            'winner_id' => $winner->id,
+            'vouchers_created' => count($createdRows),
+            'bimba_unit' => $bimbaUnitClean,   // log untuk debugging
+            'amount' => $voucherAmount
         ]);
 
         return true;
 
     } catch (\Throwable $e) {
-        Log::error('createVouchersAndFlash FAILED', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+        Log::error('=== createVouchersAndFlash FAILED ===', [
+            'winner_id'   => $winner->id ?? null,
+            'winner_name' => $winner->name ?? null,
+            'error'       => $e->getMessage(),
+            'line'        => $e->getLine(),
+            'file'        => $e->getFile(),
+            'trace'       => $e->getTraceAsString()
+        ]);
+
         return false;
     }
 }

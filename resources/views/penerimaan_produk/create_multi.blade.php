@@ -128,8 +128,11 @@
                 <tr class="baris-produk align-middle">
 
                     <td>
-                        <select name="items[0][label]" 
-                            class="form-select form-select-sm label-select" required>
+                        <select
+    name="items[0][label]"
+    class="form-select form-select-sm label-select select-produk"
+    required
+>
                             @if($produks->isEmpty())
                                 <option value="">-- Tidak ada produk --</option>
                             @else
@@ -240,8 +243,53 @@
         </form>
     </div>
 
-    <script>
+
+    
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+
+<script>
+
+/* ==========================================================
+   SELECT2
+========================================================== */
+
+function initSelectProduk(scope = document) {
+
+    $(scope).find('.select-produk').each(function () {
+
+        if ($(this).hasClass('select2-hidden-accessible')) {
+            return;
+        }
+
+        $(this).select2({
+            width: '100%',
+            placeholder: '-- Ketik atau Pilih Produk --',
+            allowClear: true,
+            minimumResultsForSearch: 0,
+            dropdownAutoWidth: true
+        });
+
+        // event select2
+        $(this).on('select2:select', function () {
+            isiOtomatis(this);
+            updateAllDropdowns();
+        });
+
+        // ketika clear
+        $(this).on('select2:clear', function () {
+            isiOtomatis(this);
+            updateAllDropdowns();
+        });
+
+    });
+
+}
+
 /* ================= UTIL ================= */
+
 function formatAngka(angka) {
     if (!angka || angka == 0) return '0';
     return parseInt(angka).toLocaleString('id-ID');
@@ -251,40 +299,57 @@ function formatRupiah(angka) {
     return 'Rp ' + formatAngka(angka);
 }
 
+
 /* ================= HITUNG TOTAL ================= */
+
 function hitungTotalRow(row) {
+
     const jumlah = parseInt(row.querySelector('.jumlah-field').value) || 0;
     const harga  = parseInt(row.querySelector('.harga-field').value) || 0;
-    const total  = jumlah * harga;
+
+    const total = jumlah * harga;
 
     row.querySelector('.total-row-display').textContent = formatRupiah(total);
+
     updateGrandTotal();
 }
 
 function updateGrandTotal() {
+
     let grand = 0;
+
     document.querySelectorAll('.baris-produk').forEach(row => {
+
         const jumlah = parseInt(row.querySelector('.jumlah-field').value) || 0;
         const harga  = parseInt(row.querySelector('.harga-field').value) || 0;
+
         grand += jumlah * harga;
+
     });
+
     document.getElementById('grand-total').textContent = formatRupiah(grand);
+
 }
 
+
 /* ================= ISI OTOMATIS ================= */
+
 function isiOtomatis(selectElement) {
+
     const row    = selectElement.closest('tr');
     const option = selectElement.options[selectElement.selectedIndex];
 
-    row.querySelector('.jenis-field').value   = '';
-    row.querySelector('.kategori-field').value= '';
-    row.querySelector('.nama-field').value    = '';
-    row.querySelector('.satuan-field').value  = '';
-    row.querySelector('.harga-field').value   = '';
-    row.querySelector('.status-field').value  = '';
-    row.querySelector('.isi-field').value     = '';
+    row.querySelector('.jenis-field').value    = '';
+    row.querySelector('.kategori-field').value = '';
+    row.querySelector('.nama-field').value     = '';
+    row.querySelector('.satuan-field').value   = '';
+    row.querySelector('.harga-field').value    = '';
+    row.querySelector('.status-field').value   = '';
+    row.querySelector('.isi-field').value      = '';
+
     row.querySelector('.order-field').value   = 0;
     row.querySelector('.jumlah-field').value  = 0;
+
     row.querySelector('.harga-satuan-display').textContent = '';
     row.querySelector('.total-row-display').textContent = 'Rp 0';
 
@@ -296,13 +361,15 @@ function isiOtomatis(selectElement) {
     const orderQty = parseInt(option.dataset.order || 0);
 
     const data = {
-        jenis: option.dataset.jenis || '',
-        kategori: option.dataset.kategori || '',
-        nama: option.dataset.nama || '',
-        satuan: option.dataset.satuan || 'Set',
-        harga: Math.round(parseFloat(option.dataset.harga || 0)),
-        status: option.dataset.status || '',
-        isi: option.dataset.isi || ''
+
+        jenis    : option.dataset.jenis || '',
+        kategori : option.dataset.kategori || '',
+        nama     : option.dataset.nama || '',
+        satuan   : option.dataset.satuan || '',
+        harga    : Math.round(parseFloat(option.dataset.harga || 0)),
+        status   : option.dataset.status || '',
+        isi      : option.dataset.isi || ''
+
     };
 
     row.querySelector('.jenis-field').value    = data.jenis;
@@ -313,141 +380,219 @@ function isiOtomatis(selectElement) {
     row.querySelector('.status-field').value   = data.status;
     row.querySelector('.status-badge').textContent = data.status.toUpperCase();
     row.querySelector('.isi-field').value      = data.isi;
-    row.querySelector('.order-field').value    = orderQty;
 
+    row.querySelector('.order-field').value = orderQty;
     row.querySelector('.jumlah-field').value = 0;
+
     row.querySelector('.harga-satuan-display').textContent = formatAngka(data.harga);
 
     hitungTotalRow(row);
+
 }
 
-/* ================= FILTER PAGE ================= */
+
+/* ================= FILTER ================= */
+
 function filterProduk() {
+
     const unitEl = document.querySelector('[name="unit_id"]');
     const tanggalEl = document.querySelector('[name="tanggal"]');
 
     const unitId = unitEl ? unitEl.value.trim() : '';
     const tanggal = tanggalEl ? tanggalEl.value.trim() : '';
 
-    if (!unitId) {
-        console.warn('Unit ID tidak ditemukan, tidak bisa filter');
-        return;
-    }
+    if (!unitId) return;
 
     const params = new URLSearchParams(window.location.search);
 
-    // Update hanya jika ada perubahan
     let needReload = false;
 
     if (unitId && params.get('unit_id') !== unitId) {
         params.set('unit_id', unitId);
         needReload = true;
     }
+
     if (tanggal && params.get('tanggal') !== tanggal) {
         params.set('tanggal', tanggal);
         needReload = true;
     }
 
-    // Jika ada perubahan → reload
     if (needReload) {
         window.location.search = params.toString();
     }
+
 }
 
-/* ================= ROW HANDLER ================= */
+
+/* ================= TAMBAH BARIS ================= */
+
 let rowIndex = 1;
 
-document.getElementById('tambah-baris').addEventListener('click', () => {
+document.getElementById('tambah-baris').addEventListener('click', function () {
+
     const tbody = document.querySelector('#tabel-produk tbody');
+
     const template = tbody.querySelector('.baris-produk');
+
     const newRow = template.cloneNode(true);
 
-    newRow.querySelectorAll('input, select, textarea').forEach(el => {
-        el.value = '';
-        if (el.classList.contains('order-field')) el.value = 0;
-        if (el.classList.contains('jumlah-field')) el.value = 0;
+    // destroy select2 lama
+    $(newRow).find('.select-produk').next('.select2').remove();
 
-        if (el.name) el.name = el.name.replace(/\[\d+\]/, `[${rowIndex}]`);
+    newRow.querySelectorAll('input, select').forEach(function(el){
+
+        if(el.name){
+            el.name = el.name.replace(/\[\d+\]/, '['+rowIndex+']');
+        }
+
+        if(el.tagName === 'SELECT'){
+            el.selectedIndex = 0;
+        }else{
+            el.value = '';
+        }
+
     });
+
+    newRow.querySelector('.order-field').value = 0;
+    newRow.querySelector('.jumlah-field').value = 0;
 
     newRow.querySelector('.harga-satuan-display').textContent = '';
     newRow.querySelector('.total-row-display').textContent = 'Rp 0';
 
     tbody.appendChild(newRow);
+
+    // aktifkan select2 untuk row baru
+    initSelectProduk(newRow);
+
     rowIndex++;
 
     document.getElementById('total-item').textContent =
         document.querySelectorAll('.baris-produk').length;
 
     updateGrandTotal();
+
     updateAllDropdowns();
+
 });
 
-document.addEventListener('click', e => {
-    if (e.target.closest('.hapus-baris')) {
-        if (document.querySelectorAll('.baris-produk').length > 1) {
+
+/* ================= HAPUS ================= */
+
+document.addEventListener('click', function(e){
+
+    if(e.target.closest('.hapus-baris')){
+
+        if(document.querySelectorAll('.baris-produk').length>1){
+
             e.target.closest('tr').remove();
+
             document.getElementById('total-item').textContent =
                 document.querySelectorAll('.baris-produk').length;
+
             updateGrandTotal();
+
             updateAllDropdowns();
-        } else {
+
+        }else{
+
             alert('Minimal harus ada 1 baris produk!');
+
         }
+
     }
+
 });
 
-/* ================= DROPDOWN UNIQUE ================= */
+
+/* ================= UNIQUE DROPDOWN ================= */
+
 function updateAllDropdowns() {
+
     const allSelects = document.querySelectorAll('.label-select');
+
     const selectedValues = [];
 
-    allSelects.forEach(select => {
-        if (select.value) selectedValues.push(select.value);
+    allSelects.forEach(function(select){
+
+        if(select.value){
+            selectedValues.push(select.value);
+        }
+
     });
 
-    allSelects.forEach(select => {
+    allSelects.forEach(function(select){
+
         const currentValue = select.value;
-        const options = select.querySelectorAll('option');
 
-        options.forEach(option => {
-            if (option.value && option.value !== currentValue) {
-                option.style.display = selectedValues.includes(option.value) ? 'none' : '';
-            } else {
-                option.style.display = '';
+        select.querySelectorAll('option').forEach(function(option){
+
+            if(option.value && option.value!==currentValue){
+
+                option.style.display =
+                    selectedValues.includes(option.value)
+                    ? 'none'
+                    : '';
+
+            }else{
+
+                option.style.display='';
+
             }
+
         });
+
     });
+
 }
 
-/* ================= EVENT GLOBAL ================= */
-document.addEventListener('change', function (e) {
-    if (e.target.classList.contains('label-select')) {
-        isiOtomatis(e.target);
-        updateAllDropdowns();
-    }
-});
 
-document.addEventListener('input', function (e) {
-    if (e.target.classList.contains('jumlah-field')) {
-        const row = e.target.closest('tr');
-        hitungTotalRow(row);
-    }
-});
+/* ================= EVENT ================= */
 
-/* ================= INIT ================= */
-document.addEventListener('DOMContentLoaded', () => {
-    updateGrandTotal();
+$(document).on('change','.select-produk',function(){
+
+    isiOtomatis(this);
+
     updateAllDropdowns();
 
-    // Hanya trigger filterProduk SAAT PERTAMA KALI LOAD dan BELUM ADA QUERY STRING
-    const currentParams = new URLSearchParams(window.location.search);
-    if (!currentParams.has('unit_id') && !currentParams.has('tanggal')) {
-        const unitEl = document.querySelector('[name="unit_id"]');
-        if (unitEl && unitEl.value) {
-            filterProduk(); // hanya sekali saat pertama kali masuk tanpa filter
-        }
-    }
 });
+
+
+document.addEventListener('input',function(e){
+
+    if(e.target.classList.contains('jumlah-field')){
+
+        hitungTotalRow(e.target.closest('tr'));
+
+    }
+
+});
+
+
+/* ================= INIT ================= */
+
+document.addEventListener('DOMContentLoaded',function(){
+
+    initSelectProduk();
+
+    updateGrandTotal();
+
+    updateAllDropdowns();
+
+    const currentParams = new URLSearchParams(window.location.search);
+
+    if(!currentParams.has('unit_id') && !currentParams.has('tanggal')){
+
+        const unitEl = document.querySelector('[name="unit_id"]');
+
+        if(unitEl && unitEl.value){
+
+            filterProduk();
+
+        }
+
+    }
+
+});
+
 </script>
 @endsection
